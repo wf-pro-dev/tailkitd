@@ -13,14 +13,14 @@ const (
 	daemonUser  = "tailkitd"
 	daemonGroup = "tailkitd"
 
-	binaryDst    = "/usr/local/bin/tailkitd"
-	configDir    = "/etc/tailkitd"
-	integrDir    = "/etc/tailkitd/integrations"
-	toolsDir     = "/etc/tailkitd/tools"
-	stateDir     = "/var/lib/tailkitd"
-	recvDir      = "/var/lib/tailkitd/recv"
-	envFile      = "/etc/tailkitd/env"
-	unitFile     = "/etc/systemd/system/tailkitd.service"
+	binaryDst = "/usr/local/bin/tailkitd"
+	configDir = "/etc/tailkitd"
+	integrDir = "/etc/tailkitd/integrations"
+	toolsDir  = "/etc/tailkitd/tools"
+	stateDir  = "/var/lib/tailkitd"
+	recvDir   = "/var/lib/tailkitd/recv"
+	envFile   = "/etc/tailkitd/env"
+	unitFile  = "/etc/systemd/system/tailkitd.service"
 )
 
 // ensureUser creates the tailkitd system user and group if they do not exist.
@@ -137,7 +137,7 @@ func writeEnvFile(authKey, hostname string) error {
 		}
 	}
 
-	content := fmt.Sprintf("TS_AUTHKEY=%s\nTAILKITD_HOSTNAME=%s\nTAILKITD_ENV=production\n",
+	content := fmt.Sprintf("TS_AUTHKEY=%s\nTAILKITD_HOSTNAME=tailkitd-%s\nTAILKITD_ENV=production\n",
 		authKey, hostname)
 
 	if _, err := os.Stat(envFile); err == nil {

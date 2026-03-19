@@ -20,7 +20,7 @@ func (h *Handler) handleSwarmNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nodes, err := h.client.dc.NodeList(r.Context(), dockertypes.NodeListOptions{
+	nodes, err := h.client.Docker().NodeList(r.Context(), dockertypes.NodeListOptions{
 		Filters: filters.NewArgs(),
 	})
 	if err != nil {
@@ -42,7 +42,7 @@ func (h *Handler) handleSwarmServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	services, err := h.client.Docker.ServiceList(r.Context(), dockertypes.ServiceListOptions{
+	services, err := h.client.Docker().ServiceList(r.Context(), dockertypes.ServiceListOptions{
 		Filters: filters.NewArgs(),
 	})
 	if err != nil {
@@ -64,7 +64,7 @@ func (h *Handler) handleSwarmTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tasks, err := h.client.dc.TaskList(r.Context(), dockertypes.TaskListOptions{
+	tasks, err := h.client.Docker().TaskList(r.Context(), dockertypes.TaskListOptions{
 		Filters: filters.NewArgs(),
 	})
 	if err != nil {

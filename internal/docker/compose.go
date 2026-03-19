@@ -20,6 +20,7 @@ type Handler struct {
 	cfg    config.DockerConfig
 	jobs   *exec.JobStore
 	logger *zap.Logger
+	client *Client
 }
 
 // ComposeProject is the JSON shape returned by the projects listing.

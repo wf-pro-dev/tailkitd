@@ -1,5 +1,3 @@
-//go:build tailscale
-
 package main
 
 import (
@@ -21,10 +19,6 @@ import (
 )
 
 const toolsDir = "/etc/tailkitd/tools"
-
-func main() {
-	os.Exit(run())
-}
 
 func run() int {
 	// ── Step 1: Logger first, before anything else. ───────────────────────────

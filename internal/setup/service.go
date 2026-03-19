@@ -3,22 +3,19 @@ package setup
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
 // unitContent is the tailkitd.service unit file.
-// Key decisions (documented in prior design):
-//   - Type=notify: systemd waits for READY=1 before marking active
-//   - WatchdogSec=30s: restarts if the process hangs without sending WATCHDOG=1
-//   - ProtectSystem=strict + ReadWritePaths: filesystem jail
-//   - EnvironmentFile: keeps TS_AUTHKEY out of the unit file itself
-//   - StartLimitBurst=5: gives up after 5 rapid crashes in 120s
 const unitContent = `[Unit]
 Description=tailkitd node agent
 Documentation=https://github.com/wf-pro-dev/tailkitd
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/etc/tailkitd
+StartLimitBurst=5
+StartLimitIntervalSec=120s
 
 [Service]
 Type=notify
@@ -33,11 +30,8 @@ ExecStart=/usr/local/bin/tailkitd run
 
 Restart=on-failure
 RestartSec=5s
-StartLimitBurst=5
-StartLimitIntervalSec=120s
 
 # Filesystem sandboxing
-# The daemon may only write to its own config and state directories.
 ProtectSystem=strict
 ReadWritePaths=/etc/tailkitd /var/lib/tailkitd
 PrivateTmp=true
@@ -48,8 +42,7 @@ WantedBy=multi-user.target
 `
 
 // writeUnitFile writes the systemd service unit to disk.
-// Unlike config files, this is always overwritten — the unit file
-// is managed entirely by tailkitd and should never be manually edited.
+// Always overwritten — the unit file is managed by tailkitd install.
 func writeUnitFile() error {
 	if err := atomicWrite(unitFile, []byte(unitContent), 0644); err != nil {
 		return fmt.Errorf("write unit file: %w", err)
@@ -69,33 +62,52 @@ func enableService() error {
 	return nil
 }
 
-// startService starts the service and waits up to 30 seconds for it
-// to signal READY via sd_notify (the unit is Type=notify).
+// startService starts the service and waits up to 60 seconds for it
+// to reach active(running) state.
+// With Type=notify, systemd marks the service active only after READY=1
+// is received. tsnet may take several seconds to authenticate on first boot,
+// so we give it more time than the default.
 func startService() error {
 	if err := run("systemctl", "start", "tailkitd"); err != nil {
 		return fmt.Errorf("start tailkitd: %w", err)
 	}
 
-	// Poll for active state — systemctl start returns once the process
-	// is spawned, not once it has signalled READY. We give it 30s.
 	fmt.Print("  …  waiting for tailkitd to become active")
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
+
 	for time.Now().Before(deadline) {
-		out, err := runOutput("systemctl", "is-active", "tailkitd")
-		if err == nil && string(out) == "active\n" {
-			fmt.Println(" ✓")
-			return nil
+		state, err := runOutput("systemctl", "is-active", "tailkitd")
+		if err == nil {
+			state = strings.TrimSpace(state)
+			switch state {
+			case "active":
+				fmt.Println(" ✓")
+				return nil
+			case "failed":
+				fmt.Println()
+				return fmt.Errorf("tailkitd entered failed state — check: journalctl -u tailkitd")
+				// "activating" means systemd is waiting for READY=1 — keep polling.
+				// Any other state (deactivating, inactive) is also worth waiting on briefly.
+			}
 		}
 		fmt.Print(".")
 		time.Sleep(1 * time.Second)
 	}
+
+	// Timed out — but check one final time. The service may have become active
+	// in the last polling interval.
+	state, err := runOutput("systemctl", "is-active", "tailkitd")
+	if err == nil && strings.TrimSpace(state) == "active" {
+		fmt.Println(" ✓")
+		return nil
+	}
+
 	fmt.Println()
-	return fmt.Errorf("tailkitd did not become active within 30s — check: journalctl -u tailkitd")
+	return fmt.Errorf("tailkitd did not become active within 60s — check: journalctl -u tailkitd")
 }
 
 // disableService stops and disables the service.
 func disableService() error {
-	// Ignore errors — service may not be running.
 	run("systemctl", "stop", "tailkitd")    //nolint:errcheck
 	run("systemctl", "disable", "tailkitd") //nolint:errcheck
 	run("systemctl", "daemon-reload")       //nolint:errcheck

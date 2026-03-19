@@ -119,6 +119,7 @@ func cmdRun() int {
 	srv, err := tailkit.NewServer(tailkit.ServerConfig{
 		Hostname: tsnetHostname,
 		AuthKey:  os.Getenv("TS_AUTHKEY"),
+		StateDir: "/var/lib/tailkitd",
 	})
 	if err != nil {
 		logger.Error("fatal: failed to start tsnet server", zap.Error(err))

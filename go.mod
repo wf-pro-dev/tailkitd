@@ -2,8 +2,6 @@ module github.com/wf-pro-dev/tailkitd
 
 go 1.26.1
 
-replace github.com/wf-pro-dev/tailkit => ../tailkit
-
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/coreos/go-systemd/v22 v22.6.0
@@ -11,7 +9,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/shirou/gopsutil/v4 v4.26.2
-	github.com/wf-pro-dev/tailkit v0.0.0-20260319044953-b823f748c6d8
+	github.com/wf-pro-dev/tailkit v0.1.0
 	go.uber.org/zap v1.27.1
 	tailscale.com v1.96.2
 )

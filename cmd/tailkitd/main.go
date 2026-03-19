@@ -21,7 +21,7 @@ func main() {
 	case "status":
 		cmdStatus()
 	case "run", "":
-		run()
+		cmdRun()
 	default:
 		fmt.Fprintf(os.Stderr, "tailkitd: unknown command %q\n\n", cmd)
 		fmt.Fprintf(os.Stderr, "Usage:\n")

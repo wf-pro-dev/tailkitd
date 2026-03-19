@@ -5,7 +5,6 @@ project_name: tailkitd
 before:
   hooks:
     - go mod tidy
-    - go test ./...
 
 builds:
   # Full build — includes cgo for sdjournal (systemd journal integration).

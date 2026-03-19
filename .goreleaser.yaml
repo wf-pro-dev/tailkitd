@@ -90,3 +90,5 @@ release:
   draft: false
   prerelease: auto # tags like v1.0.0-rc.1 are marked as pre-release automatically
   name_template: "tailkitd {{.Version}}"
+  extra_files:
+    - glob: ./install.sh

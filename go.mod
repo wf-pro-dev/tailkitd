@@ -11,7 +11,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/shirou/gopsutil/v4 v4.26.2
-	github.com/wf-pro-dev/tailkit v0.0.0-00010101000000-000000000000
+	github.com/wf-pro-dev/tailkit v0.0.0-20260319044953-b823f748c6d8
 	go.uber.org/zap v1.27.1
 	tailscale.com v1.96.2
 )

@@ -18,6 +18,8 @@ import (
 	"github.com/wf-pro-dev/tailkitd/internal/exec"
 	"github.com/wf-pro-dev/tailkitd/internal/files"
 	tailkitdlogger "github.com/wf-pro-dev/tailkitd/internal/logger"
+	"github.com/wf-pro-dev/tailkitd/internal/metrics"
+	"github.com/wf-pro-dev/tailkitd/internal/systemd"
 	"github.com/wf-pro-dev/tailkitd/internal/tools"
 	"github.com/wf-pro-dev/tailkitd/internal/vars"
 )
@@ -86,13 +88,11 @@ func cmdRun() int {
 	execLogger := logger.With(zap.String("component", "exec"))
 	filesLogger := logger.With(zap.String("component", "files"))
 	varsLogger := logger.With(zap.String("component", "vars"))
-	dockerLogger := logger.With(zap.String("component", "docker"))   //nolint:unused
-	systemdLogger := logger.With(zap.String("component", "systemd")) //nolint:unused
-	metricsLogger := logger.With(zap.String("component", "metrics")) //nolint:unused
+	dockerLogger := logger.With(zap.String("component", "docker"))
+	systemdLogger := logger.With(zap.String("component", "systemd"))
+	metricsLogger := logger.With(zap.String("component", "metrics"))
 
 	_ = dockerLogger
-	_ = systemdLogger
-	_ = metricsLogger
 
 	// ── Step 5: Build tool registry (for GET /tools). ────────────────────────
 	toolsRegistry := tools.NewRegistry(toolsDir, toolsLogger)
@@ -115,7 +115,18 @@ func cmdRun() int {
 	varsStore := vars.NewStore("/etc/tailkitd/vars", varsLogger)
 	varsHandler := vars.NewHandler(varsCfg, varsStore, varsLogger)
 
-	// ── Step 9: Start tsnet server. ──────────────────────────────────────────
+	// ── Step 9: Build metrics handler. ────────────────────────────────────────
+	metricsHandler := metrics.NewHandler(metricsCfg, metricsLogger)
+
+	// ── Step 10: Build systemd handler. ──────────────────────────────────────
+	systemdClient, err := systemd.NewClient(ctx, systemdCfg, systemdLogger)
+	if err != nil {
+		logger.Error("fatal: failed to start systemd client", zap.Error(err))
+		return 1
+	}
+	systemdHandler := systemd.NewHandler(systemdClient, execJobs, systemdLogger)
+
+	// ── Step 11: Start tsnet server. ──────────────────────────────────────────
 	srv, err := tailkit.NewServer(tailkit.ServerConfig{
 		Hostname: tsnetHostname,
 		AuthKey:  os.Getenv("TS_AUTHKEY"),
@@ -129,7 +140,7 @@ func cmdRun() int {
 
 	logger.Info("tsnet server started", zap.String("hostname", tsnetHostname))
 
-	// ── Step 10: Wire router. ────────────────────────────────────────────────
+	// ── Step 12: Wire router. ────────────────────────────────────────────────
 	mux := http.NewServeMux()
 	var handler http.Handler = mux
 	handler = tailkit.AuthMiddleware(srv)(handler)
@@ -138,13 +149,15 @@ func cmdRun() int {
 	execHandler.Register(mux)
 	filesHandler.Register(mux)
 	varsHandler.Register(mux)
+	metricsHandler.Register(mux)
+	systemdHandler.Register(mux)
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"ok","hostname":%q}`, tsnetHostname)
 	})
 
-	// ── Step 11: Start HTTP server in a goroutine. ───────────────────────────
+	// ── Step 13: Start HTTP server in a goroutine. ───────────────────────────
 	// We need the main goroutine free to send READY=1 and then wait for signals.
 	addr := ":80"
 	if p := os.Getenv("TAILKITD_PORT"); p != "" {
@@ -168,7 +181,7 @@ func cmdRun() int {
 		close(serveErr)
 	}()
 
-	// ── Step 12: Notify systemd the service is ready. ────────────────────────
+	// ── Step 14: Notify systemd the service is ready. ────────────────────────
 	// daemon.SdNotify is a no-op when NOTIFY_SOCKET is not set (i.e. not running
 	// under systemd), so it is safe to call unconditionally.
 	// This satisfies Type=notify in the unit file — systemd will not mark the
@@ -182,7 +195,7 @@ func cmdRun() int {
 		logger.Info("sd_notify: READY=1 sent")
 	}
 
-	// ── Step 13: Watchdog loop. ───────────────────────────────────────────────
+	// ── Step 15: Watchdog loop. ───────────────────────────────────────────────
 	// If WatchdogSec is set in the unit file, systemd expects a WATCHDOG=1 ping
 	// at least once every WatchdogSec interval. We ping at half the interval.
 	// SdWatchdogEnabled returns 0 when the watchdog is not configured — the
@@ -205,7 +218,7 @@ func cmdRun() int {
 		}
 	}()
 
-	// ── Step 14: Wait for shutdown signal or server error. ───────────────────
+	// ── Step 16: Wait for shutdown signal or server error. ───────────────────
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 
@@ -219,7 +232,7 @@ func cmdRun() int {
 		}
 	}
 
-	// ── Step 15: Graceful shutdown. ───────────────────────────────────────────
+	// ── Step 17: Graceful shutdown. ───────────────────────────────────────────
 	// Give in-flight requests up to 15 seconds to complete before forcing close.
 	cancel() // stop watchdog and any context-bound work
 

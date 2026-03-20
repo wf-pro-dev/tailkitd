@@ -102,13 +102,13 @@ func cmdRun() int {
 		logger.Error("fatal: failed to start exec registry", zap.Error(err))
 		return 1
 	}
-	execRunner := exec.NewRunner(execLogger)
+
 	execJobs := exec.NewJobStore(execLogger)
 	execJobs.StartEviction(ctx)
-	execHandler := exec.NewHandler(execRegistry, execRunner, execJobs, execLogger)
+	execHandler := exec.NewHandler(execRegistry, execJobs, execLogger)
 
 	// ── Step 7: Build files handler. ─────────────────────────────────────────
-	filesHandler := files.NewHandler(filesCfg, execRegistry, execRunner, execJobs, filesLogger)
+	filesHandler := files.NewHandler(filesCfg, execRegistry, execJobs, filesLogger)
 
 	// ── Step 8: Build vars handler. ──────────────────────────────────────────
 	varsStore := vars.NewStore("/etc/tailkitd/vars", varsLogger)

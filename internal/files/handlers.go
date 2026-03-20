@@ -9,7 +9,6 @@
 package files
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,18 +29,16 @@ import (
 type Handler struct {
 	cfg    config.FilesConfig
 	reg    *exec.Registry
-	runner *exec.Runner
 	jobs   *exec.JobStore
 	logger *zap.Logger
 }
 
 // NewHandler constructs a files Handler. If cfg.Enabled is false the handler
 // responds 503 to all requests.
-func NewHandler(cfg config.FilesConfig, reg *exec.Registry, runner *exec.Runner, jobs *exec.JobStore, logger *zap.Logger) *Handler {
+func NewHandler(cfg config.FilesConfig, reg *exec.Registry, jobs *exec.JobStore, logger *zap.Logger) *Handler {
 	return &Handler{
 		cfg:    cfg,
 		reg:    reg,
-		runner: runner,
 		jobs:   jobs,
 		logger: logger.With(zap.String("component", "files")),
 	}
@@ -103,6 +100,13 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !rule.Permits("write") {
+		helpers.WriteError(w, http.StatusForbidden,
+			"write permission denied for this path",
+			"add a matching [write] entry in files.toml")
+		return
+	}
+
 	caller, _ := tailkit.CallerFromContext(r.Context())
 
 	// 3. Path traversal check — before any I/O.
@@ -146,11 +150,6 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 	result := tailkit.SendResult{
 		WrittenTo:    cleanDest,
 		BytesWritten: n,
-	}
-
-	// 6. Fire post_recv hooks asynchronously if configured.
-	if len(rule.PostRecv) > 0 {
-		result.JobID = h.firePostRecv(rule.PostRecv, cleanDest, caller.Hostname)
 	}
 
 	helpers.WriteJSON(w, http.StatusOK, result)
@@ -302,67 +301,6 @@ func (h *Handler) matchReadRule(path string) (config.PathRule, string, bool) {
 		return config.PathRule{}, "", false
 	}
 	return bestRule, best, true
-}
-
-// ─── Post-recv hooks ──────────────────────────────────────────────────────────
-
-// firePostRecv runs configured post_recv commands sequentially in a goroutine.
-// Commands are referenced as "tool/command" strings matching the exec registry.
-// Returns the job ID immediately; the caller can poll it via GET /exec/jobs/{id}.
-func (h *Handler) firePostRecv(commands []string, writtenTo, caller string) string {
-	jobID := h.jobs.NewJob()
-
-	go func() {
-		for _, ref := range commands {
-			toolName, cmdName, ok := splitCommandRef(ref)
-			if !ok {
-				h.logger.Warn("post_recv: invalid command reference (expected tool/command)",
-					zap.String("ref", ref))
-				continue
-			}
-
-			entry, found := h.reg.Lookup(toolName, cmdName)
-			if !found {
-				h.logger.Warn("post_recv: command not found in exec registry",
-					zap.String("ref", ref))
-				continue
-			}
-
-			h.logger.Info("post_recv: firing hook",
-				zap.String("tool", toolName),
-				zap.String("command", cmdName),
-				zap.String("written_to", writtenTo),
-				zap.String("triggered_by", caller),
-			)
-
-			hookCtx, cancel := context.WithTimeout(context.Background(), entry.Command.Timeout)
-			result := h.runner.Run(hookCtx, entry, nil)
-			cancel()
-
-			result.JobID = jobID
-			h.jobs.StoreResult(jobID, result)
-
-			if result.Status != tailkit.JobStatusCompleted {
-				h.logger.Error("post_recv: hook failed, stopping chain",
-					zap.String("ref", ref),
-					zap.Int("exit_code", result.ExitCode),
-					zap.String("stderr", result.Stderr),
-				)
-				return
-			}
-		}
-	}()
-
-	return jobID
-}
-
-// splitCommandRef splits "tool/command" into (tool, command, true).
-func splitCommandRef(ref string) (tool, cmd string, ok bool) {
-	parts := strings.SplitN(ref, "/", 2)
-	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-		return parts[0], parts[1], true
-	}
-	return "", "", false
 }
 
 // ─── Atomic write ─────────────────────────────────────────────────────────────

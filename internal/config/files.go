@@ -39,12 +39,6 @@ type PathRule struct {
 	// Allow is the list of permitted operations for this directory.
 	// Valid values: "read", "write".
 	Allow []string `toml:"allow"`
-
-	// PostRecv lists exec-registry command names to invoke after a successful
-	// file write to this directory. Entries must be non-empty strings.
-	// Full validation against the exec registry happens at startup after tools
-	// are loaded — missing commands at parse time are warned, not fatal.
-	PostRecv []string `toml:"post_recv"`
 }
 
 // Permits returns true if op ("read" or "write") is in the allow list.
@@ -132,18 +126,6 @@ func validateFilesConfig(cfg FilesConfig) error {
 			return err
 		}
 
-		// post_recv entries must be non-empty strings.
-		// Full validation against the exec registry happens after tools are loaded.
-		for j, cmd := range r.PostRecv {
-			if strings.TrimSpace(cmd) == "" {
-				return fmt.Errorf("path[%d].dir %q: post_recv[%d] must not be empty", i, r.Dir, j)
-			}
-		}
-
-		// post_recv only makes sense on writable paths.
-		if len(r.PostRecv) > 0 && !r.Permits("write") {
-			return fmt.Errorf("path[%d].dir %q: post_recv requires \"write\" in allow", i, r.Dir)
-		}
 	}
 	return nil
 }

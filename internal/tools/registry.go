@@ -17,7 +17,7 @@ import (
 	tailkit "github.com/wf-pro-dev/tailkit"
 )
 
-const defaultToolsDir = "/etc/tailkitd/tools"
+const DefaultToolsDir = "/etc/tailkitd/tools"
 
 // Registry reads tool registration files and serves the GET /tools endpoint.
 // It reads from disk on every request so installs and upgrades are live.
@@ -89,28 +89,6 @@ func (r *Registry) HasTool(ctx context.Context, name, minVersion string) (bool, 
 		}
 	}
 	return false, nil
-}
-
-// LookupCommand finds the tool and command entry for "tool/command". Returns
-// (tool, command, true) if found, or (zero, zero, false) if not.
-func (r *Registry) LookupCommand(ctx context.Context, toolName, cmdName string) (tailkit.Tool, tailkit.Command, bool, error) {
-	tools, err := r.List(ctx)
-	if err != nil {
-		return tailkit.Tool{}, tailkit.Command{}, false, err
-	}
-	for _, t := range tools {
-		if t.Name != toolName {
-			continue
-		}
-		for _, cmd := range t.Commands {
-			if cmd.Name == cmdName {
-				return t, cmd, true, nil
-			}
-		}
-		// Tool found but command not in it.
-		return t, tailkit.Command{}, false, nil
-	}
-	return tailkit.Tool{}, tailkit.Command{}, false, nil
 }
 
 // Handler returns an http.HandlerFunc for GET /tools.

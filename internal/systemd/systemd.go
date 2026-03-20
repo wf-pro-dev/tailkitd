@@ -1,32 +1,35 @@
 package systemd
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/coreos/go-systemd/v22/sdjournal"
 	"go.uber.org/zap"
 
 	tailkit "github.com/wf-pro-dev/tailkit"
-	"github.com/wf-pro-dev/tailkitd/internal/exec"
+	TailkitdExec "github.com/wf-pro-dev/tailkitd/internal/exec"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 )
 
 // Handler serves all /integrations/systemd/* endpoints.
 type Handler struct {
 	client *Client
-	jobs   *exec.JobStore
+	jobs   *TailkitdExec.JobStore
 	logger *zap.Logger
 }
 
 // NewHandler constructs a systemd Handler.
-func NewHandler(client *Client, jobs *exec.JobStore, logger *zap.Logger) *Handler {
+func NewHandler(client *Client, jobs *TailkitdExec.JobStore, logger *zap.Logger) *Handler {
 	return &Handler{
 		client: client,
 		jobs:   jobs,
@@ -352,7 +355,6 @@ func (h *Handler) handleUnitControl(w http.ResponseWriter, r *http.Request, unit
 
 // handleUnitEnable serves POST /integrations/systemd/units/{unit}/enable|disable.
 func (h *Handler) handleUnitEnable(w http.ResponseWriter, r *http.Request, unit string, enable bool) {
-
 	if r.Method != http.MethodPost {
 		helpers.WriteError(w, http.StatusMethodNotAllowed, "method not allowed", "use POST")
 		return
@@ -425,8 +427,6 @@ func (h *Handler) handleUnitEnable(w http.ResponseWriter, r *http.Request, unit 
 // ─── Journal ──────────────────────────────────────────────────────────────────
 
 // JournalEntry is the shape returned in journal responses.
-// We define our own struct rather than exposing sdjournal.JournalEntry directly
-// so the API surface is stable regardless of sdjournal internals.
 type JournalEntry struct {
 	Timestamp uint64            `json:"timestamp_us"` // realtime timestamp in microseconds
 	Message   string            `json:"message"`
@@ -435,9 +435,18 @@ type JournalEntry struct {
 	Fields    map[string]string `json:"fields,omitempty"`
 }
 
+// journalctlJSON is the raw shape of a single journalctl --output=json line.
+// journalctl emits one JSON object per line (not a JSON array).
+// All fields are strings or arrays of strings — we only care about the
+// ones that map to JournalEntry. Unknown fields are ignored.
+type journalctlJSON struct {
+	RealtimeTimestamp string `json:"__REALTIME_TIMESTAMP"` // microseconds since epoch, as string
+	Message           string `json:"MESSAGE"`
+	SystemdUnit       string `json:"_SYSTEMD_UNIT"`
+	Priority          string `json:"PRIORITY"` // syslog integer as string: "0"–"7"
+}
+
 // handleUnitJournal serves GET /integrations/systemd/units/{unit}/journal.
-// Returns up to ?lines= entries (default from systemd.toml) for the named unit,
-// filtered to the configured minimum priority floor.
 func (h *Handler) handleUnitJournal(w http.ResponseWriter, r *http.Request, unit string) {
 	if r.Method != http.MethodGet {
 		helpers.WriteError(w, http.StatusMethodNotAllowed, "method not allowed", "use GET")
@@ -450,20 +459,17 @@ func (h *Handler) handleUnitJournal(w http.ResponseWriter, r *http.Request, unit
 	}
 
 	lines := parseLines(r, h.client.cfg.Journal.Lines)
-	entries, err := h.readJournal(r.Context(), unit, lines,
-		h.client.cfg.Journal.Priority)
+	entries, err := h.readJournal(r.Context(), unit, lines, h.client.cfg.Journal.Priority)
 	if err != nil {
 		h.logger.Error("systemd: journal read failed",
 			zap.String("unit", unit), zap.Error(err))
-		helpers.WriteError(w, http.StatusInternalServerError,
-			"failed to read journal", "")
+		helpers.WriteError(w, http.StatusInternalServerError, "failed to read journal", "")
 		return
 	}
 	helpers.WriteJSON(w, http.StatusOK, entries)
 }
 
 // handleSystemJournal serves GET /integrations/systemd/journal.
-// Returns up to ?lines= entries from the system journal (all units).
 func (h *Handler) handleSystemJournal(w http.ResponseWriter, r *http.Request) {
 	if !h.guard(w) {
 		return
@@ -480,93 +486,143 @@ func (h *Handler) handleSystemJournal(w http.ResponseWriter, r *http.Request) {
 
 	lines := parseLines(r, h.client.cfg.Journal.Lines)
 	// Empty unit string → no unit filter → system-wide journal.
-	entries, err := h.readJournal(r.Context(), "", lines,
-		h.client.cfg.Journal.Priority)
+	entries, err := h.readJournal(r.Context(), "", lines, h.client.cfg.Journal.Priority)
 	if err != nil {
 		h.logger.Error("systemd: system journal read failed", zap.Error(err))
-		helpers.WriteError(w, http.StatusInternalServerError,
-			"failed to read system journal", "")
+		helpers.WriteError(w, http.StatusInternalServerError, "failed to read system journal", "")
 		return
 	}
 	helpers.WriteJSON(w, http.StatusOK, entries)
 }
 
-// readJournal opens the system journal, optionally filters by unit, applies the
-// priority floor, seeks to the tail, and collects up to `lines` entries going
-// backward. sdjournal requires cgo — this file is only compiled when cgo is
-// available (standard on Linux with libsystemd-dev installed).
+// readJournal reads journal entries by shelling out to journalctl.
+//
+// This replaces the previous sdjournal (CGO) implementation with a pure Go
+// approach. journalctl is always available on any systemd host, requires no
+// C headers, and produces identical output via --output=json.
+//
+// Behaviour is preserved exactly:
+//   - unit != "" → filtered to that unit via --unit
+//   - unit == "" → system-wide (no --unit flag)
+//   - lines      → --lines cap
+//   - priorityFloor → --priority floor (journalctl handles the severity filter natively)
 func (h *Handler) readJournal(ctx context.Context, unit string, lines int, priorityFloor string) ([]JournalEntry, error) {
-	j, err := sdjournal.NewJournal()
-	if err != nil {
-		return nil, fmt.Errorf("open journal: %w", err)
+	args := []string{
+		"--output=json", // one JSON object per line
+		"--no-pager",    // never pause waiting for a pager
+		"--quiet",       // suppress "-- Boot ID --" header lines
+		"--lines", strconv.Itoa(lines),
+		"--priority", priorityFloor, // journalctl accepts names like "info", "err", etc.
 	}
-	defer j.Close()
 
-	// Filter by unit if specified.
 	if unit != "" {
-		if err := j.AddMatch(
-			sdjournal.SD_JOURNAL_FIELD_SYSTEMD_UNIT + "=" + unit,
-		); err != nil {
-			return nil, fmt.Errorf("add unit match: %w", err)
+		args = append(args, "--unit", unit)
+	}
+
+	cmd := exec.CommandContext(ctx, "journalctl", args...)
+
+	// Capture stdout; surface stderr only on failure.
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	stdout, err := cmd.Output()
+	if err != nil {
+		// Exit code 1 from journalctl means no entries matched — not an error.
+		if isNoEntriesExit(err) {
+			return []JournalEntry{}, nil
 		}
+		return nil, fmt.Errorf("journalctl: %w: %s", err, stderr.String())
 	}
 
-	// Seek to tail, then step back `lines` entries.
-	if err := j.SeekTail(); err != nil {
-		return nil, fmt.Errorf("seek tail: %w", err)
-	}
-	// PreviousSkip moves the cursor back without reading; we then read forward.
-	if _, err := j.PreviousSkip(uint64(lines)); err != nil {
-		return nil, fmt.Errorf("previous skip: %w", err)
-	}
+	return parseJournalOutput(stdout), nil
+}
 
-	minPriority := priorityToInt(priorityFloor)
+// parseJournalOutput parses journalctl --output=json stdout into JournalEntry slice.
+// journalctl emits one JSON object per line (newline-delimited JSON, not an array).
+// Malformed lines are silently skipped — a single corrupted entry should not
+// fail the entire response.
+func parseJournalOutput(data []byte) []JournalEntry {
 	var entries []JournalEntry
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 
-	for len(entries) < lines {
-		// Check context cancellation on each iteration.
-		if err := ctx.Err(); err != nil {
-			break
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
 		}
 
-		n, err := j.Next()
-		if err != nil {
-			return nil, fmt.Errorf("journal next: %w", err)
-		}
-		if n == 0 {
-			break // end of journal
+		var raw journalctlJSON
+		if err := json.Unmarshal(line, &raw); err != nil {
+			continue // skip malformed lines
 		}
 
-		entry, err := j.GetEntry()
-		if err != nil {
-			continue // skip unreadable entries
+		// __REALTIME_TIMESTAMP is a string containing microseconds since epoch.
+		var ts uint64
+		if raw.RealtimeTimestamp != "" {
+			ts, _ = strconv.ParseUint(raw.RealtimeTimestamp, 10, 64)
 		}
 
-		// Apply priority floor: skip entries below the configured minimum.
-		if priStr, ok := entry.Fields[sdjournal.SD_JOURNAL_FIELD_PRIORITY]; ok {
-			priInt, convErr := strconv.Atoi(priStr)
-			if convErr == nil && priInt > minPriority {
-				continue // higher number = lower priority in syslog convention
+		// Decode the full fields map so callers get all journal metadata.
+		var allFields map[string]string
+		_ = json.Unmarshal(line, &allFields)
+		// Strip the internal __ prefixed journalctl fields from the fields map
+		// so they don't duplicate the structured top-level fields.
+		for k := range allFields {
+			if strings.HasPrefix(k, "__") {
+				delete(allFields, k)
 			}
 		}
 
 		entries = append(entries, JournalEntry{
-			Timestamp: entry.RealtimeTimestamp,
-			Message:   entry.Fields[sdjournal.SD_JOURNAL_FIELD_MESSAGE],
-			Unit:      entry.Fields[sdjournal.SD_JOURNAL_FIELD_SYSTEMD_UNIT],
-			Priority:  entry.Fields[sdjournal.SD_JOURNAL_FIELD_PRIORITY],
-			Fields:    entry.Fields,
+			Timestamp: ts,
+			Message:   raw.Message,
+			Unit:      raw.SystemdUnit,
+			Priority:  priorityIntToName(raw.Priority),
+			Fields:    allFields,
 		})
 	}
 
-	return entries, nil
+	return entries
+}
+
+// isNoEntriesExit returns true when journalctl exits with code 1 because
+// no journal entries matched the filter — this is not an error condition.
+func isNoEntriesExit(err error) bool {
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode() == 1
+	}
+	return false
+}
+
+// priorityIntToName converts a syslog priority integer string ("0"–"7")
+// to its human-readable name. journalctl --output=json stores PRIORITY as
+// a string-encoded integer, matching the syslog convention.
+func priorityIntToName(s string) string {
+	switch s {
+	case "0":
+		return "emerg"
+	case "1":
+		return "alert"
+	case "2":
+		return "crit"
+	case "3":
+		return "err"
+	case "4":
+		return "warning"
+	case "5":
+		return "notice"
+	case "6":
+		return "info"
+	case "7":
+		return "debug"
+	default:
+		return s
+	}
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// priorityToInt converts a syslog priority name to its integer value.
-// In syslog convention, lower numbers are more severe (0=emerg, 7=debug).
-// The priority floor means: include this priority and anything more severe.
+// priorityToInt is kept for any internal callers that still need the int form.
 var priorityMap = map[string]int{
 	"emerg":   0,
 	"alert":   1,

@@ -52,25 +52,3 @@ func (h *Handler) handleSwarmServices(w http.ResponseWriter, r *http.Request) {
 	}
 	helpers.WriteJSON(w, http.StatusOK, services)
 }
-
-// handleSwarmTasks serves GET /integrations/docker/swarm/tasks.
-func (h *Handler) handleSwarmTasks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		helpers.WriteError(w, http.StatusMethodNotAllowed, "method not allowed", "use GET")
-		return
-	}
-	if !h.cfg.Swarm.Enabled {
-		helpers.WriteError(w, http.StatusForbidden, "swarm.read not enabled in docker.toml", "")
-		return
-	}
-
-	tasks, err := h.client.Docker().TaskList(r.Context(), dockertypes.TaskListOptions{
-		Filters: filters.NewArgs(),
-	})
-	if err != nil {
-		h.logger.Error("docker: TaskList failed", zap.Error(err))
-		helpers.WriteError(w, http.StatusInternalServerError, "failed to list swarm tasks", "")
-		return
-	}
-	helpers.WriteJSON(w, http.StatusOK, tasks)
-}

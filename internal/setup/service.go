@@ -35,7 +35,14 @@ RestartSec=5s
 ProtectSystem=strict
 ReadWritePaths=/etc/tailkitd /var/lib/tailkitd
 PrivateTmp=true
-NoNewPrivileges=true
+
+# Nodes that do not use write_as are unaffected — the capabilities are present
+# but never exercised.
+# NoNewPrivileges is intentionally absent: that flag sets PR_SET_NO_NEW_PRIVS
+# which makes setuid(2) return EPERM on all threads regardless of capabilities,
+# breaking the per-thread identity drop that write_as relies on.
+AmbientCapabilities=CAP_SETUID CAP_SETGID
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID
 
 [Install]
 WantedBy=multi-user.target
@@ -86,16 +93,12 @@ func startService() error {
 			case "failed":
 				fmt.Println()
 				return fmt.Errorf("tailkitd entered failed state — check: journalctl -u tailkitd")
-				// "activating" means systemd is waiting for READY=1 — keep polling.
-				// Any other state (deactivating, inactive) is also worth waiting on briefly.
 			}
 		}
 		fmt.Print(".")
 		time.Sleep(1 * time.Second)
 	}
 
-	// Timed out — but check one final time. The service may have become active
-	// in the last polling interval.
 	state, err := runOutput("systemctl", "is-active", "tailkitd")
 	if err == nil && strings.TrimSpace(state) == "active" {
 		fmt.Println(" ✓")

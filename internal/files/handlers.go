@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -148,6 +147,7 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 	)
 
 	result := tailkit.SendResult{
+
 		WrittenTo:    cleanDest,
 		BytesWritten: n,
 	}
@@ -210,15 +210,6 @@ func (h *Handler) handleReadFile(w http.ResponseWriter, r *http.Request, path st
 	helpers.WriteJSON(w, http.StatusOK, map[string]string{"content": string(data)})
 }
 
-// DirEntry is one entry in a directory listing response.
-type DirEntry struct {
-	Name    string    `json:"name"`
-	Size    int64     `json:"size"`
-	IsDir   bool      `json:"is_dir"`
-	ModTime time.Time `json:"mod_time"`
-	Mode    string    `json:"mode"`
-}
-
 // handleListDir serves GET /files?dir=<absolute-path>.
 func (h *Handler) handleListDir(w http.ResponseWriter, r *http.Request, dir string) {
 	_, allowedDir, ok := h.matchReadRule(dir)
@@ -245,13 +236,13 @@ func (h *Handler) handleListDir(w http.ResponseWriter, r *http.Request, dir stri
 		return
 	}
 
-	result := make([]DirEntry, 0, len(entries))
+	result := make([]tailkit.DirEntry, 0, len(entries))
 	for _, e := range entries {
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		result = append(result, DirEntry{
+		result = append(result, tailkit.DirEntry{
 			Name:    e.Name(),
 			Size:    info.Size(),
 			IsDir:   e.IsDir(),

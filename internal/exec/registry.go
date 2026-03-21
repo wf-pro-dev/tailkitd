@@ -24,8 +24,7 @@ const defaultToolsDir = "/etc/tailkitd/tools"
 // It pairs the Tool metadata with the specific Command so the runner has
 // everything it needs without a second lookup.
 type ExecEntry struct {
-	Tool    tailkit.Tool
-	Command tailkit.Command
+	Tool tailkit.Tool
 }
 
 // Registry maintains an in-memory index of all registered tool commands,
@@ -82,20 +81,6 @@ func (r *Registry) Lookup(toolName, cmdName string) (ExecEntry, bool) {
 	defer r.mu.RUnlock()
 	entry, ok := r.index[toolName+"/"+cmdName]
 	return entry, ok
-}
-
-// Commands returns all registered commands, grouped by tool name.
-// Used by GET /tools to include exec-registered commands.
-func (r *Registry) Commands(toolName string) []tailkit.Command {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var cmds []tailkit.Command
-	for key, entry := range r.index {
-		if strings.HasPrefix(key, toolName+"/") {
-			cmds = append(cmds, entry.Command)
-		}
-	}
-	return cmds
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
@@ -158,14 +143,10 @@ func (r *Registry) rebuild() error {
 			)
 			continue
 		}
-		for _, cmd := range tool.Commands {
-			key := tool.Name + "/" + cmd.Name
-			newIndex[key] = ExecEntry{Tool: tool, Command: cmd}
-		}
+		newIndex[tool.Name] = ExecEntry{Tool: tool}
 		r.logger.Info("loaded tool into exec registry",
 			zap.String("tool", tool.Name),
 			zap.String("version", tool.Version),
-			zap.Int("commands", len(tool.Commands)),
 		)
 	}
 

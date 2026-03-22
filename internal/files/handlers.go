@@ -179,14 +179,6 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.MkdirAll(filepath.Dir(cleanDest), 0755); err != nil {
-		h.logger.Error("files: mkdir failed",
-			zap.String("path", cleanDest), zap.Error(err))
-		helpers.WriteError(w, http.StatusInternalServerError,
-			"failed to create destination directory", "")
-		return
-	}
-
 	n, err := atomicWriteAs(cleanDest, r.Body, rule.WriteAs)
 	if err != nil {
 		h.logger.Error("files: write failed",
@@ -587,6 +579,12 @@ func atomicWriteAs(dest string, r io.Reader, id config.ResolvedIdentity) (int64,
 		}
 
 		dir := filepath.Dir(dest)
+
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			ch <- result{err: fmt.Errorf("create destination directory %s: %w", dest, err)}
+			return
+		}
+
 		tmp, err := os.CreateTemp(dir, ".tailkitd-recv-*")
 		if err != nil {
 			ch <- result{err: fmt.Errorf("create temp file in %s: %w", dir, err)}
@@ -610,6 +608,7 @@ func atomicWriteAs(dest string, r io.Reader, id config.ResolvedIdentity) (int64,
 			ch <- result{err: fmt.Errorf("close temp file: %w", err)}
 			return
 		}
+
 		if err := os.Rename(tmpName, dest); err != nil {
 			ch <- result{err: fmt.Errorf("rename %s → %s: %w", tmpName, dest, err)}
 			return

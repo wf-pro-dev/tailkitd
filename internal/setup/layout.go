@@ -125,6 +125,17 @@ func writeConfigFiles(i integrations) error {
 	return nil
 }
 
+// Warning: Linux only, will not work on Windows or macOS.
+func getHostTailscaleIP() (string, error) {
+	// exec
+	cmd := exec.Command("tailscale", "ip", "-4")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("execute tailscale ip -4: %w", err)
+	}
+	return string(output), nil
+}
+
 // writeEnvFile writes /etc/tailkitd/env with the auth key and hostname.
 // Mode 0640, owned root:tailkitd so only root and the daemon can read it.
 // Idempotent: existing file is not overwritten.
@@ -137,8 +148,13 @@ func writeEnvFile(authKey, hostname string) error {
 		}
 	}
 
-	content := fmt.Sprintf("TS_AUTHKEY=%s\nTAILKITD_HOSTNAME=tailkitd-%s\nTAILKITD_ENV=production\n",
-		authKey, hostname)
+	tailscaleIP, err := getHostTailscaleIP()
+	if err != nil {
+		return fmt.Errorf("get host tailscale IP: %w", err)
+	}
+
+	content := fmt.Sprintf("TS_AUTHKEY=%s\nTAILKITD_HOSTNAME=tailkitd-%s\nTAILKITD_ENV=production\nHOST_TAILSCALE_IP=%s\n",
+		authKey, hostname, tailscaleIP)
 
 	if _, err := os.Stat(envFile); err == nil {
 		// Already exists — do not overwrite. Auth key rotation is the

@@ -18,6 +18,7 @@ import (
 	"github.com/wf-pro-dev/tailkitd/internal/docker"
 	"github.com/wf-pro-dev/tailkitd/internal/exec"
 	"github.com/wf-pro-dev/tailkitd/internal/files"
+	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	tailkitdlogger "github.com/wf-pro-dev/tailkitd/internal/logger"
 	"github.com/wf-pro-dev/tailkitd/internal/metrics"
 	"github.com/wf-pro-dev/tailkitd/internal/systemd"
@@ -160,9 +161,34 @@ func cmdRun() int {
 	metricsHandler.Register(mux)
 	systemdHandler.Register(mux)
 
+	type Health struct {
+		TailkitName string `json:"tailkit_name"`
+		Hostname    string `json:"hostname"`
+		TailkitIP   string `json:"tailkit_ip"`
+		HostIP      string `json:"host_ip"`
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		logger.Error("fatal: could not determine hostname", zap.Error(err))
+		return 1
+	}
+
+	ip4, _ := srv.TailscaleIPs()
+
+	hostIP, ok := os.LookupEnv("HOST_TAILSCALE_IP")
+	if !ok {
+		logger.Error("fatal: could not determine host IP", zap.Error(err))
+		return 1
+	}
+
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","hostname":%q}`, tsnetHostname)
+		helpers.WriteJSON(w, http.StatusOK, Health{
+			TailkitName: tsnetHostname,
+			Hostname:    hostname,
+			TailkitIP:   ip4.String(),
+			HostIP:      hostIP,
+		})
 	})
 
 	// ── Step 14: Start HTTP server in a goroutine. ───────────────────────────

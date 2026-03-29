@@ -4,12 +4,12 @@ go 1.26.1
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/coreos/go-systemd/v22 v22.6.0
+	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/shirou/gopsutil/v4 v4.26.2
-	github.com/wf-pro-dev/tailkit v0.1.11
+	github.com/wf-pro-dev/tailkit v0.2.1
 	go.uber.org/zap v1.27.1
 	tailscale.com v1.96.2
 )

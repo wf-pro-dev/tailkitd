@@ -134,11 +134,17 @@ func cmdRun() int {
 	}
 	systemdHandler := systemd.NewHandler(systemdClient, execJobs, systemdLogger)
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		logger.Error("fatal: could not determine hostname", zap.Error(err))
+		return 1
+	}
 	// ── Step 12: Start tsnet server. ──────────────────────────────────────────
 	srv, err := tailkit.NewServer(tailkit.ServerConfig{
 		Hostname: tsnetHostname,
 		AuthKey:  os.Getenv("TS_AUTHKEY"),
 		StateDir: "/var/lib/tailkitd",
+		Tags:     []string{hostname},
 	})
 	if err != nil {
 		logger.Error("fatal: failed to start tsnet server", zap.Error(err))
@@ -166,11 +172,6 @@ func cmdRun() int {
 		Hostname    string `json:"hostname"`
 		TailkitIP   string `json:"tailkit_ip"`
 		HostIP      string `json:"host_ip"`
-	}
-	hostname, err := os.Hostname()
-	if err != nil {
-		logger.Error("fatal: could not determine hostname", zap.Error(err))
-		return 1
 	}
 
 	ip4, _ := srv.TailscaleIPs()

@@ -176,8 +176,8 @@ func cmdRun() int {
 
 	ip4, _ := srv.TailscaleIPs()
 
-	hostIP, ok := os.LookupEnv("HOST_TAILSCALE_IP")
-	if !ok {
+	hostIP := os.Getenv("HOST_TAILSCALE_IP")
+	if hostIP == "" {
 		logger.Error("fatal: could not determine host IP", zap.Error(err))
 		return 1
 	}

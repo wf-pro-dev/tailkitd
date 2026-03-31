@@ -144,7 +144,6 @@ func cmdRun() int {
 		Hostname: tsnetHostname,
 		AuthKey:  os.Getenv("TS_AUTHKEY"),
 		StateDir: "/var/lib/tailkitd",
-		Tags:     []string{hostname},
 	})
 	if err != nil {
 		logger.Error("fatal: failed to start tsnet server", zap.Error(err))

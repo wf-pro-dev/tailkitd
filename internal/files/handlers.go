@@ -110,6 +110,7 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 		toolDir := filepath.Join(recvBase, tool)
 		dest := filepath.Join(toolDir, filename)
+		destDir := filepath.Dir(dest)
 
 		// Path traversal check — belt-and-suspenders after the regex above.
 		if !strings.HasPrefix(filepath.Clean(dest), recvBase) {
@@ -120,7 +121,7 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := os.MkdirAll(toolDir, 0750); err != nil {
+		if err := os.MkdirAll(destDir, 0750); err != nil {
 			h.logger.Error("files: mkdir recv tool dir failed",
 				zap.String("dir", toolDir), zap.Error(err))
 			helpers.WriteError(w, http.StatusInternalServerError,

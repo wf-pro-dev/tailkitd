@@ -44,7 +44,7 @@ const skeletonFiles = `# /etc/tailkitd/integrations/files.toml
 # Each [[path]] entry grants access to one directory.
 #   dir       — absolute path, must end with /
 #   allow     — one or both of: "read", "write"
-#   post_recv — exec-registry command names to run after a successful write (optional)
+#   use_as    — username to switch to when writing (optional, default: tailkitd)
 #
 # Restart tailkitd after editing this file.
 

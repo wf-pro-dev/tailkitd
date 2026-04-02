@@ -16,7 +16,7 @@ import (
 
 	"go.uber.org/zap"
 
-	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 	TailkitdExec "github.com/wf-pro-dev/tailkitd/internal/exec"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 )
@@ -308,9 +308,9 @@ func (h *Handler) handleUnitControl(w http.ResponseWriter, r *http.Request, unit
 				zap.String("action", action),
 				zap.Error(dbusErr),
 			)
-			h.jobs.StoreResult(jobID, tailkit.JobResult{
+			h.jobs.StoreResult(jobID, types.JobResult{
 				JobID:  jobID,
-				Status: tailkit.JobStatusFailed,
+				Status: types.JobStatusFailed,
 				Error:  dbusErr.Error(),
 			})
 			return
@@ -324,10 +324,10 @@ func (h *Handler) handleUnitControl(w http.ResponseWriter, r *http.Request, unit
 			result = "timeout"
 		}
 
-		status := tailkit.JobStatusCompleted
+		status := types.JobStatusCompleted
 		errMsg := ""
 		if result != "done" && result != "skipped" {
-			status = tailkit.JobStatusFailed
+			status = types.JobStatusFailed
 			errMsg = fmt.Sprintf("systemd job result: %s", result)
 			h.logger.Error("systemd: unit control failed",
 				zap.String("unit", unit),
@@ -342,7 +342,7 @@ func (h *Handler) handleUnitControl(w http.ResponseWriter, r *http.Request, unit
 			)
 		}
 
-		h.jobs.StoreResult(jobID, tailkit.JobResult{
+		h.jobs.StoreResult(jobID, types.JobResult{
 			JobID:  jobID,
 			Status: status,
 			Error:  errMsg,
@@ -350,7 +350,7 @@ func (h *Handler) handleUnitControl(w http.ResponseWriter, r *http.Request, unit
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted,
-		tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+		types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // handleUnitEnable serves POST /integrations/systemd/units/{unit}/enable|disable.
@@ -403,9 +403,9 @@ func (h *Handler) handleUnitEnable(w http.ResponseWriter, r *http.Request, unit 
 				zap.String("action", action),
 				zap.Error(opErr),
 			)
-			h.jobs.StoreResult(jobID, tailkit.JobResult{
+			h.jobs.StoreResult(jobID, types.JobResult{
 				JobID:  jobID,
-				Status: tailkit.JobStatusFailed,
+				Status: types.JobStatusFailed,
 				Error:  opErr.Error(),
 			})
 			return
@@ -414,14 +414,14 @@ func (h *Handler) handleUnitEnable(w http.ResponseWriter, r *http.Request, unit 
 		// Reload daemon after enable/disable so systemd picks up the change.
 		_ = conn.ReloadContext(ctx)
 
-		h.jobs.StoreResult(jobID, tailkit.JobResult{
+		h.jobs.StoreResult(jobID, types.JobResult{
 			JobID:  jobID,
-			Status: tailkit.JobStatusCompleted,
+			Status: types.JobStatusCompleted,
 		})
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted,
-		tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+		types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // ─── Journal ──────────────────────────────────────────────────────────────────

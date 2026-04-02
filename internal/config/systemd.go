@@ -7,6 +7,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"go.uber.org/zap"
+
+	types "github.com/wf-pro-dev/tailkit/types/integrations"
 )
 
 const SystemdConfigPath = "/etc/tailkitd/integrations/systemd.toml"
@@ -43,36 +45,10 @@ const defaultJournalPriority = "info"
 const defaultJournalLines = 100
 
 // SystemdConfig is the parsed and validated representation of systemd.toml.
-type SystemdConfig struct {
-	Enabled bool
-	Units   UnitConfig    `toml:"units"`
-	Journal JournalConfig `toml:"journal"`
-}
+type SystemdConfig types.SystemdConfig
 
 // UnitConfig controls which systemd unit operations are permitted.
-type UnitConfig struct {
-	// Enabled gates all unit operations.
-	Enabled bool `toml:"enabled"`
-
-	// Allow is the list of permitted unit operations.
-	// Valid values: list, inspect, unit_file, logs, start, stop, restart,
-	// reload, enable, disable.
-	// An unknown value is a fatal config error.
-	Allow []string `toml:"allow"`
-}
-
-// Permits returns true if op is enabled and present in the allow list.
-func (u UnitConfig) Permits(op string) bool {
-	if !u.Enabled {
-		return false
-	}
-	for _, a := range u.Allow {
-		if a == op {
-			return true
-		}
-	}
-	return false
-}
+type UnitConfig types.UnitConfig
 
 // JournalConfig controls journal retrieval behaviour.
 // It applies to both per-unit journal endpoints and the system-wide journal.

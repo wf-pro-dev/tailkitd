@@ -8,6 +8,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"go.uber.org/zap"
+
+	types "github.com/wf-pro-dev/tailkit/types/integrations"
 )
 
 const VarsConfigPath = "/etc/tailkitd/integrations/vars.toml"
@@ -22,51 +24,8 @@ var validVarOps = map[string]bool{
 }
 
 // VarsConfig is the parsed and validated representation of vars.toml.
-type VarsConfig struct {
-	Enabled bool
-	Scopes  []VarScope `toml:"scope"`
-}
-
-// VarScope defines access permissions for a single project+env combination.
-//
-// Project and Env must both match ^[a-z0-9_-]+$.
-// Allow must contain at least one of "read" or "write".
-// Duplicate project/env pairs are a validation error.
-type VarScope struct {
-	// Project is the project identifier (e.g. "myapp").
-	// Must match ^[a-z0-9_-]+$.
-	Project string `toml:"project"`
-
-	// Env is the environment identifier (e.g. "prod", "staging").
-	// Must match ^[a-z0-9_-]+$.
-	Env string `toml:"env"`
-
-	// Allow is the list of permitted operations for this scope.
-	// Valid values: "read", "write".
-	// At least one value is required.
-	Allow []string `toml:"allow"`
-}
-
-// Permits returns true if op ("read" or "write") is in the allow list.
-func (s VarScope) Permits(op string) bool {
-	for _, a := range s.Allow {
-		if a == op {
-			return true
-		}
-	}
-	return false
-}
-
-// FindScope returns the VarScope for the given project+env pair,
-// and a bool indicating whether a match was found.
-func (c VarsConfig) FindScope(project, env string) (VarScope, bool) {
-	for _, s := range c.Scopes {
-		if s.Project == project && s.Env == env {
-			return s, true
-		}
-	}
-	return VarScope{}, false
-}
+type VarsConfig types.VarsConfig
+type VarScope types.VarScope
 
 // LoadVarsConfig loads and validates vars.toml from the default path.
 //

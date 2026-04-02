@@ -10,7 +10,8 @@ import (
 
 	"go.uber.org/zap"
 
-	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
+
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 	"github.com/wf-pro-dev/tailkitd/internal/exec"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
@@ -171,7 +172,7 @@ func (h *Handler) handleComposeUp(w http.ResponseWriter, r *http.Request, projec
 		)
 	}()
 
-	helpers.WriteJSON(w, http.StatusAccepted, tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // handleComposeDown serves POST /integrations/docker/compose/{project}/down.
@@ -205,7 +206,7 @@ func (h *Handler) handleComposeDown(w http.ResponseWriter, r *http.Request, proj
 		)
 	}()
 
-	helpers.WriteJSON(w, http.StatusAccepted, tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // handleComposePull serves POST /integrations/docker/compose/{project}/pull.
@@ -232,7 +233,7 @@ func (h *Handler) handleComposePull(w http.ResponseWriter, r *http.Request, proj
 		h.jobs.StoreResult(jobID, result)
 	}()
 
-	helpers.WriteJSON(w, http.StatusAccepted, tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // handleComposeRestart serves POST /integrations/docker/compose/{project}/restart.
@@ -259,7 +260,7 @@ func (h *Handler) handleComposeRestart(w http.ResponseWriter, r *http.Request, p
 		h.jobs.StoreResult(jobID, result)
 	}()
 
-	helpers.WriteJSON(w, http.StatusAccepted, tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // handleComposeBuild serves POST /integrations/docker/compose/{project}/build.
@@ -286,7 +287,7 @@ func (h *Handler) handleComposeBuild(w http.ResponseWriter, r *http.Request, pro
 		h.jobs.StoreResult(jobID, result)
 	}()
 
-	helpers.WriteJSON(w, http.StatusAccepted, tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // ─── Compose helpers ──────────────────────────────────────────────────────────
@@ -307,19 +308,19 @@ func (h *Handler) listComposeProjects(ctx context.Context) ([]ComposeProject, er
 
 // runDockerCLI runs a `docker` subcommand as an exec.JobResult.
 // Used for compose operations where the SDK dependency is too heavy.
-func (h *Handler) runDockerCLI(ctx context.Context, jobID string, args ...string) tailkit.JobResult {
+func (h *Handler) runDockerCLI(ctx context.Context, jobID string, args ...string) types.JobResult {
 	out, err := runCommand(ctx, "docker", args...)
 	if err != nil {
-		return tailkit.JobResult{
+		return types.JobResult{
 			JobID:  jobID,
-			Status: tailkit.JobStatusFailed,
+			Status: types.JobStatusFailed,
 			Error:  err.Error(),
 			Stderr: out,
 		}
 	}
-	return tailkit.JobResult{
+	return types.JobResult{
 		JobID:  jobID,
-		Status: tailkit.JobStatusCompleted,
+		Status: types.JobStatusCompleted,
 		Stdout: out,
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 )
 
 const jobTTL = 5 * time.Minute
@@ -15,7 +15,7 @@ const evictionInterval = 30 * time.Second
 
 // jobRecord is an internal record pairing a JobResult with the time it was stored.
 type jobRecord struct {
-	result   tailkit.JobResult
+	result   types.JobResult
 	storedAt time.Time
 }
 
@@ -49,9 +49,9 @@ func (s *JobStore) NewJob() string {
 	id := uuid.New().String()
 	s.mu.Lock()
 	s.jobs[id] = jobRecord{
-		result: tailkit.JobResult{
+		result: types.JobResult{
 			JobID:  id,
-			Status: tailkit.JobStatusAccepted,
+			Status: types.JobStatusAccepted,
 		},
 		storedAt: time.Now(),
 	}
@@ -62,7 +62,7 @@ func (s *JobStore) NewJob() string {
 // StoreResult replaces the job entry for id with the completed result.
 // If id does not exist (evicted between acceptance and completion), the
 // result is stored anyway — a late store is better than losing it.
-func (s *JobStore) StoreResult(id string, result tailkit.JobResult) {
+func (s *JobStore) StoreResult(id string, result types.JobResult) {
 	result.JobID = id // ensure ID is always set on the result
 	s.mu.Lock()
 	s.jobs[id] = jobRecord{
@@ -75,12 +75,12 @@ func (s *JobStore) StoreResult(id string, result tailkit.JobResult) {
 // GetResult retrieves a job result by ID.
 // Returns (result, true) if the job exists (accepted, running, or completed).
 // Returns (zero, false) if the job has been evicted or never existed.
-func (s *JobStore) GetResult(id string) (tailkit.JobResult, bool) {
+func (s *JobStore) GetResult(id string) (types.JobResult, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rec, ok := s.jobs[id]
 	if !ok {
-		return tailkit.JobResult{}, false
+		return types.JobResult{}, false
 	}
 	return rec.result, true
 }

@@ -14,7 +14,7 @@ import (
 
 	"go.uber.org/zap"
 
-	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 )
 
 const DefaultToolsDir = "/etc/tailkitd/tools"
@@ -38,7 +38,7 @@ func NewRegistry(dir string, logger *zap.Logger) *Registry {
 // List reads all *.json files in the tools directory and returns the parsed
 // tools. Malformed files are logged as warnings and skipped — one bad file
 // must not prevent other tools from being listed.
-func (r *Registry) List(ctx context.Context) ([]tailkit.Tool, error) {
+func (r *Registry) List(ctx context.Context) ([]types.Tool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -46,12 +46,12 @@ func (r *Registry) List(ctx context.Context) ([]tailkit.Tool, error) {
 	entries, err := os.ReadDir(r.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []tailkit.Tool{}, nil
+			return []types.Tool{}, nil
 		}
 		return nil, fmt.Errorf("tools: read dir %s: %w", r.dir, err)
 	}
 
-	var tools []tailkit.Tool
+	var tools []types.Tool
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -116,19 +116,19 @@ func (r *Registry) Handler() http.HandlerFunc {
 
 // ─── internals ───────────────────────────────────────────────────────────────
 
-func (r *Registry) readOne(path string) (tailkit.Tool, error) {
+func (r *Registry) readOne(path string) (types.Tool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return tailkit.Tool{}, fmt.Errorf("read %s: %w", path, err)
+		return types.Tool{}, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	var tool tailkit.Tool
+	var tool types.Tool
 	if err := json.Unmarshal(data, &tool); err != nil {
-		return tailkit.Tool{}, fmt.Errorf("parse %s: %w", path, err)
+		return types.Tool{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 
 	if tool.Name == "" {
-		return tailkit.Tool{}, fmt.Errorf("tool in %s has empty name", path)
+		return types.Tool{}, fmt.Errorf("tool in %s has empty name", path)
 	}
 
 	return tool, nil

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"go.uber.org/zap"
 )
@@ -128,9 +128,9 @@ func (h *Handler) handleContainerStart(w http.ResponseWriter, r *http.Request, i
 
 		err := h.client.Docker().ContainerStart(ctx, id, container.StartOptions{})
 		if err != nil {
-			result := tailkit.JobResult{
+			result := types.JobResult{
 				JobID:  jobID,
-				Status: tailkit.JobStatusFailed,
+				Status: types.JobStatusFailed,
 				Error:  err.Error(),
 			}
 			h.jobs.StoreResult(jobID, result)
@@ -138,14 +138,14 @@ func (h *Handler) handleContainerStart(w http.ResponseWriter, r *http.Request, i
 				zap.String("container", id), zap.Error(err))
 			return
 		}
-		h.jobs.StoreResult(jobID, tailkit.JobResult{
+		h.jobs.StoreResult(jobID, types.JobResult{
 			JobID:  jobID,
-			Status: tailkit.JobStatusCompleted,
+			Status: types.JobStatusCompleted,
 		})
 		h.logger.Info("docker: container start completed", zap.String("container", id))
 	}()
 
-	helpers.WriteJSON(w, http.StatusAccepted, tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // handleContainerStop serves POST /integrations/docker/containers/{id}/stop.
@@ -168,9 +168,9 @@ func (h *Handler) handleContainerStop(w http.ResponseWriter, r *http.Request, id
 		timeout := 30 // seconds
 		err := h.client.Docker().ContainerStop(ctx, id, container.StopOptions{Timeout: &timeout})
 		if err != nil {
-			result := tailkit.JobResult{
+			result := types.JobResult{
 				JobID:  jobID,
-				Status: tailkit.JobStatusFailed,
+				Status: types.JobStatusFailed,
 				Error:  err.Error(),
 			}
 			h.jobs.StoreResult(jobID, result)
@@ -178,14 +178,14 @@ func (h *Handler) handleContainerStop(w http.ResponseWriter, r *http.Request, id
 				zap.String("container", id), zap.Error(err))
 			return
 		}
-		h.jobs.StoreResult(jobID, tailkit.JobResult{
+		h.jobs.StoreResult(jobID, types.JobResult{
 			JobID:  jobID,
-			Status: tailkit.JobStatusCompleted,
+			Status: types.JobStatusCompleted,
 		})
 		h.logger.Info("docker: container stop completed", zap.String("container", id))
 	}()
 
-	helpers.WriteJSON(w, http.StatusAccepted, tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // handleContainerRestart serves POST /integrations/docker/containers/{id}/restart.
@@ -208,9 +208,9 @@ func (h *Handler) handleContainerRestart(w http.ResponseWriter, r *http.Request,
 		timeout := 30
 		err := h.client.Docker().ContainerRestart(ctx, id, container.StopOptions{Timeout: &timeout})
 		if err != nil {
-			result := tailkit.JobResult{
+			result := types.JobResult{
 				JobID:  jobID,
-				Status: tailkit.JobStatusFailed,
+				Status: types.JobStatusFailed,
 				Error:  err.Error(),
 			}
 			h.jobs.StoreResult(jobID, result)
@@ -218,14 +218,14 @@ func (h *Handler) handleContainerRestart(w http.ResponseWriter, r *http.Request,
 				zap.String("container", id), zap.Error(err))
 			return
 		}
-		h.jobs.StoreResult(jobID, tailkit.JobResult{
+		h.jobs.StoreResult(jobID, types.JobResult{
 			JobID:  jobID,
-			Status: tailkit.JobStatusCompleted,
+			Status: types.JobStatusCompleted,
 		})
 		h.logger.Info("docker: container restart completed", zap.String("container", id))
 	}()
 
-	helpers.WriteJSON(w, http.StatusAccepted, tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // handleContainerLogs serves GET /integrations/docker/containers/{id}/logs.

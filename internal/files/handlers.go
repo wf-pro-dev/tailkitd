@@ -21,7 +21,8 @@ import (
 	"go.uber.org/zap"
 
 	tailkit "github.com/wf-pro-dev/tailkit"
-	"github.com/wf-pro-dev/tailkitd/internal/config"
+	"github.com/wf-pro-dev/tailkit/types"
+	Tailkittypes "github.com/wf-pro-dev/tailkit/types/integrations"
 	"github.com/wf-pro-dev/tailkitd/internal/exec"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 )
@@ -30,7 +31,7 @@ const recvBase = "/var/lib/tailkitd/recv"
 
 // Handler serves GET and POST /files.
 type Handler struct {
-	cfg    config.FilesConfig
+	cfg    Tailkittypes.FilesConfig
 	reg    *exec.Registry
 	jobs   *exec.JobStore
 	logger *zap.Logger
@@ -38,7 +39,7 @@ type Handler struct {
 
 // NewHandler constructs a files Handler. If cfg.Enabled is false the handler
 // responds 503 to all requests.
-func NewHandler(cfg config.FilesConfig, reg *exec.Registry, jobs *exec.JobStore, logger *zap.Logger) *Handler {
+func NewHandler(cfg Tailkittypes.FilesConfig, reg *exec.Registry, jobs *exec.JobStore, logger *zap.Logger) *Handler {
 	return &Handler{
 		cfg:    cfg,
 		reg:    reg,
@@ -144,7 +145,7 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 			zap.Int64("size", n),
 		)
 
-		helpers.WriteJSON(w, http.StatusOK, tailkit.SendResult{
+		helpers.WriteJSON(w, http.StatusOK, types.SendResult{
 			WrittenTo:    dest,
 			BytesWritten: n,
 		})
@@ -152,7 +153,7 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── Explicit destination path ─────────────────────────────────────────────
-	rule, allowedDir, ok := h.matchWriteRule(destPath)
+	rule, allowedDir, ok := h.cfg.MatchPathRule(destPath)
 	if !ok {
 		h.logger.Warn("files: no write rule matches path",
 			zap.String("dest_path", destPath))
@@ -180,7 +181,7 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	n, err := atomicWriteAs(cleanDest, r.Body, rule.WriteAs)
+	n, err := atomicWriteAs(cleanDest, r.Body, rule.UseAs)
 	if err != nil {
 		h.logger.Error("files: write failed",
 			zap.String("dest", cleanDest),
@@ -197,7 +198,7 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 		zap.Int64("size", n),
 	)
 
-	helpers.WriteJSON(w, http.StatusOK, tailkit.SendResult{
+	helpers.WriteJSON(w, http.StatusOK, types.SendResult{
 		WrittenTo:    cleanDest,
 		BytesWritten: n,
 	})
@@ -220,11 +221,18 @@ func (h *Handler) handleRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleReadFile(w http.ResponseWriter, r *http.Request, path string) {
-	rule, allowedDir, ok := h.matchReadRule(path)
+
+	rule, allowedDir, ok := h.cfg.MatchPathRule(path)
 	if !ok {
 		helpers.WriteError(w, http.StatusForbidden,
 			"no read rule configured for this path",
 			"add a matching entry in files.toml")
+		return
+	}
+	if !rule.Permits("read") {
+		helpers.WriteError(w, http.StatusForbidden,
+			"read permission denied for this path",
+			"add read to the allow list in files.toml")
 		return
 	}
 
@@ -234,7 +242,7 @@ func (h *Handler) handleReadFile(w http.ResponseWriter, r *http.Request, path st
 		return
 	}
 
-	data, err := readFile(cleanPath, rule.WriteAs)
+	data, err := readFile(cleanPath, rule.UseAs)
 	if err != nil {
 		if os.IsNotExist(err) {
 			helpers.WriteError(w, http.StatusNotFound, "file not found", "")
@@ -255,11 +263,18 @@ func (h *Handler) handleReadFile(w http.ResponseWriter, r *http.Request, path st
 }
 
 func (h *Handler) handleListDir(w http.ResponseWriter, r *http.Request, dir string) {
-	rule, allowedDir, ok := h.matchReadRule(dir)
+	rule, allowedDir, ok := h.cfg.MatchPathRule(dir)
 	if !ok {
 		helpers.WriteError(w, http.StatusForbidden,
 			"no read rule configured for this path",
 			"add a matching entry in files.toml")
+		return
+	}
+
+	if !rule.Permits("read") {
+		helpers.WriteError(w, http.StatusForbidden,
+			"read permission denied for this path",
+			"add read to the allow list in files.toml")
 		return
 	}
 
@@ -269,7 +284,7 @@ func (h *Handler) handleListDir(w http.ResponseWriter, r *http.Request, dir stri
 		return
 	}
 
-	entries, err := readDir(cleanDir, rule.WriteAs)
+	entries, err := readDir(cleanDir, rule.UseAs)
 	if err != nil {
 		if os.IsNotExist(err) {
 			helpers.WriteError(w, http.StatusNotFound, "directory not found", "")
@@ -279,13 +294,13 @@ func (h *Handler) handleListDir(w http.ResponseWriter, r *http.Request, dir stri
 		return
 	}
 
-	result := make([]tailkit.DirEntry, 0, len(entries))
+	result := make([]types.DirEntry, 0, len(entries))
 	for _, e := range entries {
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		result = append(result, tailkit.DirEntry{
+		result = append(result, types.DirEntry{
 			Name:    e.Name(),
 			Size:    info.Size(),
 			IsDir:   e.IsDir(),
@@ -356,7 +371,7 @@ func (h *Handler) handleInboxList(w http.ResponseWriter, r *http.Request, toolDi
 	entries, err := os.ReadDir(toolDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			helpers.WriteJSON(w, http.StatusOK, []tailkit.DirEntry{})
+			helpers.WriteJSON(w, http.StatusOK, []types.DirEntry{})
 			return
 		}
 		h.logger.Error("inbox: list failed", zap.String("dir", toolDir), zap.Error(err))
@@ -364,13 +379,13 @@ func (h *Handler) handleInboxList(w http.ResponseWriter, r *http.Request, toolDi
 		return
 	}
 
-	result := make([]tailkit.DirEntry, 0, len(entries))
+	result := make([]types.DirEntry, 0, len(entries))
 	for _, e := range entries {
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		result = append(result, tailkit.DirEntry{
+		result = append(result, types.DirEntry{
 			Name:    e.Name(),
 			Size:    info.Size(),
 			IsDir:   e.IsDir(),
@@ -475,45 +490,6 @@ func resolveInboxPath(toolDir, relPath string) (string, error) {
 
 // ─── Rule matching ────────────────────────────────────────────────────────────
 
-// matchWriteRule finds the longest-prefix write rule covering destPath.
-func (h *Handler) matchWriteRule(destPath string) (config.PathRule, string, bool) {
-	best := ""
-	var bestRule config.PathRule
-	for _, rule := range h.cfg.Paths {
-		dir := rule.Dir
-		if strings.HasPrefix(destPath, dir) && len(dir) > len(best) {
-			best = dir
-			bestRule = rule
-		}
-	}
-	if best == "" {
-		return config.PathRule{}, "", false
-	}
-	return bestRule, best, true
-}
-
-// matchReadRule finds the longest-prefix read rule covering path.
-func (h *Handler) matchReadRule(path string) (config.PathRule, string, bool) {
-	// For a file path, check its parent directory against the read rules.
-	checkPath := path
-	if !strings.HasSuffix(checkPath, "/") {
-		checkPath = filepath.Dir(checkPath) + "/"
-	}
-	best := ""
-	var bestRule config.PathRule
-	for _, rule := range h.cfg.Paths {
-		dir := rule.Dir
-		if strings.HasPrefix(checkPath, dir) && len(dir) > len(best) {
-			best = dir
-			bestRule = rule
-		}
-	}
-	if best == "" {
-		return config.PathRule{}, "", false
-	}
-	return bestRule, best, true
-}
-
 // ─── Atomic write ─────────────────────────────────────────────────────────────
 
 // atomicWrite reads from r and writes to dest using temp-then-rename.
@@ -549,7 +525,7 @@ func atomicWrite(dest string, r io.Reader) (int64, error) {
 // atomicWriteAs performs the write with uid/gid dropped on a locked OS thread.
 // The body is read into memory first (on the calling goroutine) so the locked
 // thread spends as little time as possible with the dropped identity.
-func atomicWriteAs(dest string, r io.Reader, id config.ResolvedIdentity) (int64, error) {
+func atomicWriteAs(dest string, r io.Reader, id Tailkittypes.ResolvedIdentity) (int64, error) {
 	// Read the body on the calling goroutine — no privilege needed for this.
 	data, err := io.ReadAll(r)
 	if err != nil {
@@ -640,7 +616,7 @@ func rawSetgid(gid int) syscall.Errno {
 // When id.Set is false the file is read as the daemon user (plain os.ReadFile).
 // When id.Set is true the open+read happens on a locked OS thread with the
 // identity dropped — matching the write_as semantics used by atomicWriteAs.
-func readFile(path string, id config.ResolvedIdentity) ([]byte, error) {
+func readFile(path string, id Tailkittypes.ResolvedIdentity) ([]byte, error) {
 	if id.Set {
 		return readFileAs(path, id)
 	}
@@ -649,7 +625,7 @@ func readFile(path string, id config.ResolvedIdentity) ([]byte, error) {
 
 // readDir reads the directory entries at path, optionally dropping to id's
 // uid/gid first. When id.Set is false it reads as the daemon user.
-func readDir(path string, id config.ResolvedIdentity) ([]os.DirEntry, error) {
+func readDir(path string, id Tailkittypes.ResolvedIdentity) ([]os.DirEntry, error) {
 	if id.Set {
 		return readDirAs(path, id)
 	}
@@ -660,7 +636,7 @@ func readDir(path string, id config.ResolvedIdentity) ([]os.DirEntry, error) {
 // with gid/uid dropped via RawSyscall. The entire open+read must happen inside
 // the locked goroutine — the permission check occurs at open time, so the
 // identity must already be dropped before os.ReadFile is called.
-func readFileAs(path string, id config.ResolvedIdentity) ([]byte, error) {
+func readFileAs(path string, id Tailkittypes.ResolvedIdentity) ([]byte, error) {
 	type result struct {
 		data []byte
 		err  error
@@ -691,7 +667,7 @@ func readFileAs(path string, id config.ResolvedIdentity) ([]byte, error) {
 
 // readDirAs reads directory entries on a goroutine pinned to a locked OS thread
 // with gid/uid dropped via RawSyscall.
-func readDirAs(path string, id config.ResolvedIdentity) ([]os.DirEntry, error) {
+func readDirAs(path string, id Tailkittypes.ResolvedIdentity) ([]os.DirEntry, error) {
 	type result struct {
 		entries []os.DirEntry
 		err     error

@@ -8,6 +8,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"go.uber.org/zap"
+
+	types "github.com/wf-pro-dev/tailkit/types/integrations"
 )
 
 const MetricsConfigPath = "/etc/tailkitd/integrations/metrics.toml"
@@ -21,60 +23,25 @@ const (
 //
 // Each sub-section maps to one metrics endpoint group. Sections are
 // independent — enabling disk does not require enabling cpu, and so on.
-type MetricsConfig struct {
-	Enabled   bool
-	Host      HostMetricsConfig    `toml:"host"`
-	CPU       CPUMetricsConfig     `toml:"cpu"`
-	Memory    MemoryMetricsConfig  `toml:"memory"`
-	Disk      DiskMetricsConfig    `toml:"disk"`
-	Network   NetworkMetricsConfig `toml:"network"`
-	Processes ProcessMetricsConfig `toml:"processes"`
-}
+type MetricsConfig types.MetricsConfig
 
 // HostMetricsConfig controls GET /integrations/metrics/host.
-type HostMetricsConfig struct {
-	Enabled bool `toml:"enabled"`
-}
+type HostMetricsConfig types.HostMetricsConfig
 
 // CPUMetricsConfig controls GET /integrations/metrics/cpu.
-type CPUMetricsConfig struct {
-	Enabled bool `toml:"enabled"`
-}
+type CPUMetricsConfig types.CPUMetricsConfig
 
 // MemoryMetricsConfig controls GET /integrations/metrics/memory.
-type MemoryMetricsConfig struct {
-	Enabled bool `toml:"enabled"`
-}
+type MemoryMetricsConfig types.MemoryMetricsConfig
 
 // DiskMetricsConfig controls GET /integrations/metrics/disk.
-type DiskMetricsConfig struct {
-	Enabled bool `toml:"enabled"`
-
-	// Paths restricts disk stats to specific mount points.
-	// All entries must be absolute paths.
-	// If empty, all mounted filesystems are reported.
-	Paths []string `toml:"paths"`
-}
+type DiskMetricsConfig types.DiskMetricsConfig
 
 // NetworkMetricsConfig controls GET /integrations/metrics/network.
-type NetworkMetricsConfig struct {
-	Enabled bool `toml:"enabled"`
-
-	// Interfaces restricts stats to specific network interfaces by name.
-	// If empty, all interfaces are reported.
-	Interfaces []string `toml:"interfaces"`
-}
+type NetworkMetricsConfig types.NetworkMetricsConfig
 
 // ProcessMetricsConfig controls GET /integrations/metrics/processes.
-type ProcessMetricsConfig struct {
-	Enabled bool `toml:"enabled"`
-
-	// Limit caps the number of processes returned, sorted by CPU usage desc.
-	// Must be a positive integer, maximum 100.
-	// Uses a pointer so we can distinguish "omitted" (nil → default 20)
-	// from "explicitly set to 0" (→ validation error).
-	Limit *int `toml:"limit"`
-}
+type ProcessMetricsConfig types.ProcessMetricsConfig
 
 // ProcessLimit returns the effective process limit.
 // Safe to call on a zero MetricsConfig — returns the default.

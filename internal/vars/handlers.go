@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	tailkit "github.com/wf-pro-dev/tailkit"
+	types "github.com/wf-pro-dev/tailkit/types/integrations"
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 )
@@ -113,7 +114,7 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request) {
 
 // routeScope handles /vars/{project}/{env} — list or delete a scope.
 func (h *Handler) routeScope(w http.ResponseWriter, r *http.Request,
-	project, env string, scope config.VarScope, caller tailkit.CallerIdentity) {
+	project, env string, scope types.VarScope, caller tailkit.CallerIdentity) {
 
 	switch r.Method {
 	case http.MethodGet:
@@ -148,7 +149,7 @@ func (h *Handler) routeScope(w http.ResponseWriter, r *http.Request,
 
 // routeKey handles /vars/{project}/{env}/{key} — get, set, or delete a key.
 func (h *Handler) routeKey(w http.ResponseWriter, r *http.Request,
-	project, env, key string, scope config.VarScope, caller tailkit.CallerIdentity) {
+	project, env, key string, scope types.VarScope, caller tailkit.CallerIdentity) {
 
 	switch r.Method {
 	case http.MethodGet:
@@ -274,13 +275,13 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request, project, 
 // ─── Scope lookup ─────────────────────────────────────────────────────────────
 
 // findScope looks up the VarScope for project/env in the config.
-func (h *Handler) findScope(project, env string) (config.VarScope, bool) {
+func (h *Handler) findScope(project, env string) (types.VarScope, bool) {
 	for _, s := range h.cfg.Scopes {
 		if s.Project == project && s.Env == env {
 			return s, true
 		}
 	}
-	return config.VarScope{}, false
+	return types.VarScope{}, false
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

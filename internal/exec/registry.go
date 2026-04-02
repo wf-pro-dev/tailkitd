@@ -15,7 +15,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
 
-	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 )
 
 const defaultToolsDir = "/etc/tailkitd/tools"
@@ -24,7 +24,7 @@ const defaultToolsDir = "/etc/tailkitd/tools"
 // It pairs the Tool metadata with the specific Command so the runner has
 // everything it needs without a second lookup.
 type ExecEntry struct {
-	Tool tailkit.Tool
+	Tool types.Tool
 }
 
 // Registry maintains an in-memory index of all registered tool commands,
@@ -158,17 +158,17 @@ func (r *Registry) rebuild() error {
 	return nil
 }
 
-func (r *Registry) readTool(path string) (tailkit.Tool, error) {
+func (r *Registry) readTool(path string) (types.Tool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return tailkit.Tool{}, fmt.Errorf("read %s: %w", path, err)
+		return types.Tool{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	var tool tailkit.Tool
+	var tool types.Tool
 	if err := json.Unmarshal(data, &tool); err != nil {
-		return tailkit.Tool{}, fmt.Errorf("parse %s: %w", path, err)
+		return types.Tool{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if tool.Name == "" {
-		return tailkit.Tool{}, fmt.Errorf("tool in %s has empty name", path)
+		return types.Tool{}, fmt.Errorf("tool in %s has empty name", path)
 	}
 	return tool, nil
 }

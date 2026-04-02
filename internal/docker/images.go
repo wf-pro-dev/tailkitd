@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/image"
-	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"go.uber.org/zap"
 )
@@ -129,7 +129,7 @@ func (h *Handler) handleImagePull(w http.ResponseWriter, r *http.Request, ref st
 		)
 	}()
 
-	helpers.WriteJSON(w, http.StatusAccepted, tailkit.Job{JobID: jobID, Status: tailkit.JobStatusAccepted})
+	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
 }
 
 // handleImageRemove serves DELETE /integrations/docker/images/{id}/remove.

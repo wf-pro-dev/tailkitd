@@ -22,6 +22,12 @@ NOSYSTEMD=""
 AUTH_KEY=""
 HOSTNAME_OVERRIDE=""
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+info()  { echo "[tailkitd] $*"; }
+fatal() { echo "[tailkitd] error: $*" >&2; exit 1; }
+need()  { command -v "$1" >/dev/null 2>&1 || fatal "'$1' is required but not found"; }
+
 # ---------- Detect if being piped (stdin is not a tty) ----------
 # When piped, the user cannot interactively respond to prompts.
 # We fail fast on missing flags rather than hanging.
@@ -37,7 +43,7 @@ while [ $# -gt 0 ]; do
     --hostname)  HOSTNAME_OVERRIDE="$2";  shift 2 ;;
     --nosystemd) NOSYSTEMD=1;             shift   ;;
     --version)   VERSION="$2";            shift 2 ;;
-    *) echo "error: unknown flag: $1" >&2; exit 1 ;;
+    *) fatal "unknown flag: $1" ;;
   esac
 done
 
@@ -53,27 +59,23 @@ fi
 
 # ---------- Require root ----------
 if [ "$(id -u)" -ne 0 ]; then
-  echo "error: install must be run as root (use sudo)" >&2
-  exit 1
+  fatal "install must be run as root (use sudo)"
 fi
 
 # ---------- Detect platform ----------
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
-case "$ARCH" in
-  x86_64)  ARCH="amd64" ;;
-  aarch64) ARCH="arm64" ;;
-  *)
-    echo "error: unsupported architecture: $ARCH" >&2
-    exit 1
-    ;;
+case "$OS" in
+  linux|darwin) ;;
+  *) fatal "unsupported OS: $OS" ;;
 esac
 
-if [ "$OS" != "linux" ]; then
-  echo "error: tailkitd only runs on Linux (got: $OS)" >&2
-  exit 1
-fi
+case "$ARCH" in
+  x86_64|amd64)  ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+  *) fatal "unsupported architecture: $ARCH" ;;
+esac
 
 # ---------- Resolve version ----------
 if [ -z "$VERSION" ]; then
@@ -85,8 +87,7 @@ if [ -z "$VERSION" ]; then
 fi
 
 if [ -z "$VERSION" ]; then
-  echo "error: could not resolve latest version — check your internet connection" >&2
-  exit 1
+  fatal "could not resolve latest version — check your internet connection"
 fi
 
 # Normalise: ensure VERSION has a leading v (e.g. 0.1.4 → v0.1.4).
@@ -114,14 +115,14 @@ BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-echo "Downloading tailkitd ${VERSION} (${OS}/${ARCH}${SUFFIX})…"
+info "Downloading tailkitd ${VERSION} (${OS}/${ARCH}${SUFFIX})…"
 echo "  ${BASE_URL}/${ARCHIVE}"
 
 curl -fsSL "${BASE_URL}/${ARCHIVE}"       -o "${TMP}/${ARCHIVE}"
 curl -fsSL "${BASE_URL}/${CHECKSUM_FILE}" -o "${TMP}/${CHECKSUM_FILE}"
 
 # ---------- Verify checksum ----------
-echo "Verifying checksum…"
+info "Verifying checksum…"
 cd "$TMP"
 grep "${ARCHIVE}" "${CHECKSUM_FILE}" | sha256sum -c -
 cd - > /dev/null
@@ -138,7 +139,7 @@ fi
 chmod +x "${TMP}/${BINARY_NAME}"
 
 # ---------- Hand off to the binary ----------
-echo "Running tailkitd install…"
+info "Running tailkitd install…"
 
 INSTALL_ARGS="--auth-key ${AUTH_KEY}"
 if [ -n "$HOSTNAME_OVERRIDE" ]; then

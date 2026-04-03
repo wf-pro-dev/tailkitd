@@ -62,6 +62,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"create /etc/tailkitd/integrations/files.toml to enable")
 		return
 	}
+	h.logger.Info("Files Config Enabled", zap.Any("config", h.cfg))
 	switch r.Method {
 	case http.MethodPost:
 		h.handleWrite(w, r)

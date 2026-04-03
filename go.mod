@@ -9,7 +9,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/shirou/gopsutil/v4 v4.26.2
-	github.com/wf-pro-dev/tailkit v0.2.5
+	github.com/wf-pro-dev/tailkit v0.2.6
 	go.uber.org/zap v1.27.1
 	tailscale.com v1.96.2
 )

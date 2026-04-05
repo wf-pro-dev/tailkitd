@@ -84,7 +84,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // --- GET /files/config ───────────────────────────────────────────────────────
 func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
-	helpers.WriteJSON(w, http.StatusOK, h.cfg)
+	safePaths := make([]Tailkittypes.PathRule, len(h.cfg.Paths))
+	for i, rule := range h.cfg.Paths {
+		if rule.Share {
+			safePaths[i] = Tailkittypes.PathRule{
+				Dir:   rule.Dir,
+				Allow: rule.Allow,
+				UseAs: rule.UseAs,
+			}
+		}
+	}
+	safeCfg := h.cfg
+	safeCfg.Paths = safePaths
+	helpers.WriteJSON(w, http.StatusOK, safeCfg)
 }
 
 // ─── POST /files ──────────────────────────────────────────────────────────────

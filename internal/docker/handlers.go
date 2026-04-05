@@ -27,6 +27,7 @@ func NewHandler(cfg config.DockerConfig, client *Client, jobs *exec.JobStore, lo
 // Register wires all /integrations/docker/* routes onto mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/integrations/docker/available", h.handleAvailable)
+	mux.HandleFunc("/integrations/docker/config", h.handleConfig)
 
 	// Containers
 	mux.HandleFunc("/integrations/docker/containers", h.handleContainers)
@@ -74,4 +75,9 @@ func (h *Handler) handleAvailable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	helpers.WriteJSON(w, http.StatusOK, map[string]bool{"available": true})
+}
+
+// --- GET /integrations/docker/config ───────────────────────────────────────
+func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
+	helpers.WriteJSON(w, http.StatusOK, h.cfg)
 }

@@ -45,6 +45,7 @@ const skeletonFiles = `# /etc/tailkitd/integrations/files.toml
 #   dir       — absolute path, must end with /
 #   allow     — one or both of: "read", "write"
 #   use_as    — username to switch to when writing (optional, default: tailkitd)
+#   share	  - boolean, default; false, whether to share the file via the config endpoint
 #
 # Restart tailkitd after editing this file.
 
@@ -52,7 +53,8 @@ const skeletonFiles = `# /etc/tailkitd/integrations/files.toml
 # Isolated from the rest of the node. Safe default write target for any tool.
 [[path]]
 dir   = "/var/lib/tailkitd/recv/"
-allow = ["write"]
+allow = ["read", "write"]
+share = true
 
 # Read access to the tailkitd config directory.
 # Lets tools inspect which integrations are configured without modifying them.

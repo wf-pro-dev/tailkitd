@@ -39,6 +39,7 @@ func NewHandler(cfg config.MetricsConfig, logger *zap.Logger) *Handler {
 // Register mounts all metrics endpoints onto mux.
 //
 //	GET /integrations/metrics/available
+//	GET /integrations/metrics/config
 //	GET /integrations/metrics/host
 //	GET /integrations/metrics/cpu
 //	GET /integrations/metrics/memory
@@ -48,6 +49,7 @@ func NewHandler(cfg config.MetricsConfig, logger *zap.Logger) *Handler {
 //	GET /integrations/metrics/all
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/integrations/metrics/available", h.handleAvailable)
+	mux.HandleFunc("/integrations/metrics/config", h.handleConfig)
 	mux.HandleFunc("/integrations/metrics/host", h.handleHost)
 	mux.HandleFunc("/integrations/metrics/cpu", h.handleCPU)
 	mux.HandleFunc("/integrations/metrics/memory", h.handleMemory)
@@ -84,6 +86,11 @@ func (h *Handler) handleAvailable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	helpers.WriteJSON(w, http.StatusOK, map[string]bool{"available": h.cfg.Enabled})
+}
+
+// --- GET /integrations/metrics/config ───────────────────────────────────────
+func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
+	helpers.WriteJSON(w, http.StatusOK, h.cfg)
 }
 
 // ─── GET /integrations/metrics/host ──────────────────────────────────────────

@@ -40,6 +40,7 @@ func NewHandler(client *Client, jobs *TailkitdExec.JobStore, logger *zap.Logger)
 // Register mounts all systemd endpoints onto mux.
 //
 //	GET  /integrations/systemd/available
+//	GET  /integrations/systemd/config
 //	GET  /integrations/systemd/units
 //	GET  /integrations/systemd/units/{unit}
 //	GET  /integrations/systemd/units/{unit}/file
@@ -53,6 +54,7 @@ func NewHandler(client *Client, jobs *TailkitdExec.JobStore, logger *zap.Logger)
 //	GET  /integrations/systemd/journal
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/integrations/systemd/available", h.handleAvailable)
+	mux.HandleFunc("/integrations/systemd/config", h.handleConfig)
 	mux.HandleFunc("/integrations/systemd/units", h.handleUnits)
 	mux.HandleFunc("/integrations/systemd/units/", h.routeUnit)
 	mux.HandleFunc("/integrations/systemd/journal", h.handleSystemJournal)
@@ -74,6 +76,11 @@ func (h *Handler) guard(w http.ResponseWriter) bool {
 		return false
 	}
 	return true
+}
+
+// --- GET /integrations/systemd/config ───────────────────────────────────────
+func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
+	helpers.WriteJSON(w, http.StatusOK, h.client.cfg)
 }
 
 // ─── GET /integrations/systemd/available ─────────────────────────────────────

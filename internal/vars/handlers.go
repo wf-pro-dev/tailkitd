@@ -18,6 +18,7 @@ import (
 // Handler serves all /vars/* endpoints.
 //
 //	GET  /vars                           — list all configured scopes
+//	GET  /vars/config                    — get the vars config
 //	GET  /vars/{project}/{env}           — list all keys in scope (JSON map)
 //	GET  /vars/{project}/{env}?format=env — render as KEY=VALUE text
 //	GET  /vars/{project}/{env}/{key}     — get a single key
@@ -42,7 +43,13 @@ func NewHandler(cfg config.VarsConfig, store *Store, logger *zap.Logger) *Handle
 // Register mounts all vars endpoints onto mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/vars", h.handleScopes)
+	mux.HandleFunc("/vars/config", h.handleConfig)
 	mux.HandleFunc("/vars/", h.route)
+}
+
+// --- GET /vars/config ───────────────────────────────────────────────────────
+func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
+	helpers.WriteJSON(w, http.StatusOK, h.cfg)
 }
 
 // ─── Routing ──────────────────────────────────────────────────────────────────

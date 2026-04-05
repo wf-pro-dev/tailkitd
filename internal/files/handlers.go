@@ -9,6 +9,9 @@
 package files
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,6 +58,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 // ServeHTTP dispatches on HTTP method.
+//
+//	POST /files                          — write a file to the node
+//	GET  /files/config                    — get the files config
+//	GET  /files?path=                     — read a single file (JSON wrapper or raw bytes)
+//	GET  /files?path=?stat=true          — read a single file and return the file state
+//	GET  /files?dir=                      — list a directory
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !h.cfg.Enabled {
 		helpers.WriteError(w, http.StatusServiceUnavailable,
@@ -66,10 +75,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		h.handleWrite(w, r)
 	case http.MethodGet:
+		switch r.URL.Path {
+		case "/files/config":
+			h.handleConfig(w, r)
+			return
+		}
 		h.handleRead(w, r)
 	default:
 		helpers.WriteError(w, http.StatusMethodNotAllowed, "method not allowed", "use GET or POST")
 	}
+}
+
+// --- GET /files/config ───────────────────────────────────────────────────────
+func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
+	helpers.WriteJSON(w, http.StatusOK, h.cfg)
 }
 
 // ─── POST /files ──────────────────────────────────────────────────────────────
@@ -252,6 +271,16 @@ func (h *Handler) handleReadFile(w http.ResponseWriter, r *http.Request, path st
 		return
 	}
 
+	if stat := r.URL.Query().Get("stat"); stat == "true" {
+		stat, err := readFileStat(data, cleanPath)
+		if err != nil {
+			helpers.WriteError(w, http.StatusInternalServerError, "read failed: "+err.Error(), "")
+			return
+		}
+		helpers.WriteJSON(w, http.StatusOK, stat)
+		return
+	}
+
 	if r.Header.Get("Accept") == "application/octet-stream" {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.WriteHeader(http.StatusOK)
@@ -260,6 +289,32 @@ func (h *Handler) handleReadFile(w http.ResponseWriter, r *http.Request, path st
 	}
 
 	helpers.WriteJSON(w, http.StatusOK, map[string]string{"content": string(data)})
+}
+
+func readFileStat(r []byte, path string) (types.FileStat, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return types.FileStat{}, err
+	}
+
+	h := sha256.New()
+	_, err = io.Copy(h, bytes.NewBuffer(r))
+	if err != nil {
+		return types.FileStat{}, fmt.Errorf("read content: %w", err)
+	}
+
+	digest := hex.EncodeToString(h.Sum(nil))
+
+	return types.FileStat{
+		DirEntry: types.DirEntry{
+			Name:    info.Name(),
+			Size:    info.Size(),
+			IsDir:   info.IsDir(),
+			ModTime: info.ModTime(),
+			Mode:    info.Mode().String(),
+		},
+		SHA256: digest,
+	}, nil
 }
 
 func (h *Handler) handleListDir(w http.ResponseWriter, r *http.Request, dir string) {

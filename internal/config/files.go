@@ -77,6 +77,7 @@ func loadFilesConfigFrom(_ context.Context, logger *zap.Logger, path string) (ty
 			logger.Warn("files: write_as user not found — identity drop skipped, writing as daemon user",
 				zap.String("dir", rule.Dir),
 				zap.String("write_as", rule.UseAsUser),
+				zap.Bool("share", rule.Share),
 				zap.Error(err),
 			)
 			// WriteAs.Set remains false — atomicWrite uses the plain path.

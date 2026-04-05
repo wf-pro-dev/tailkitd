@@ -1,0 +1,31 @@
+# <type>(<scope>): <short summary>
+#
+# Types:
+#   feat     - A new feature
+#   fix      - A bug fix
+#   docs     - Documentation updates
+#   style    - Formatting only (no code change)
+#   refactor - Code change that neither fixes a bug nor adds a feature
+#   test     - Adding or updating tests
+#   chore    - Maintenance, build scripts, or dependencies
+#
+# Scope (optional):
+#   frontend, backend, shared
+#
+# Examples:
+#   feat(frontend): add navbar with auth state
+#   fix(backend): handle missing JWT token
+#   chore: update .gitignore for EC2 environment
+#
+# --------------------
+# Summary (max 50 chars):
+
+
+# --------------------
+# Description (wrap at 72 chars):
+#
+# What and why (not how):
+#
+# - What problem are you solving or feature you're adding?
+# - Why is this change necessary?
+# - Any side effects to be aware of?

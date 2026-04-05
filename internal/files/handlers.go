@@ -53,6 +53,7 @@ func NewHandler(cfg Tailkittypes.FilesConfig, reg *exec.Registry, jobs *exec.Job
 
 // Register mounts the files endpoints onto mux.
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("/files/config", h.handleConfig)
 	mux.HandleFunc("/files", h.ServeHTTP)
 	mux.HandleFunc("/inbox/", h.serveInbox)
 }
@@ -75,11 +76,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		h.handleWrite(w, r)
 	case http.MethodGet:
-		switch r.URL.Path {
-		case "/files/config":
-			h.handleConfig(w, r)
-			return
-		}
 		h.handleRead(w, r)
 	default:
 		helpers.WriteError(w, http.StatusMethodNotAllowed, "method not allowed", "use GET or POST")

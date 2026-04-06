@@ -276,7 +276,7 @@ func (h *Handler) handleReadFile(w http.ResponseWriter, r *http.Request, path st
 	}
 
 	if stat := r.URL.Query().Get("stat"); stat == "true" {
-		stat, err := readFileStat(data, cleanPath)
+		stat, err := readFileStat(data, cleanPath, rule.UseAs)
 		if err != nil {
 			helpers.WriteError(w, http.StatusInternalServerError, "read failed: "+err.Error(), "")
 			return
@@ -295,8 +295,9 @@ func (h *Handler) handleReadFile(w http.ResponseWriter, r *http.Request, path st
 	helpers.WriteJSON(w, http.StatusOK, map[string]string{"content": string(data)})
 }
 
-func readFileStat(r []byte, path string) (types.FileStat, error) {
-	info, err := os.Stat(path)
+func readFileStat(r []byte, path string, id Tailkittypes.ResolvedIdentity) (types.FileStat, error) {
+
+	info, err := statFile(path, id)
 	if err != nil {
 		return types.FileStat{}, err
 	}
@@ -680,6 +681,40 @@ func readFile(path string, id Tailkittypes.ResolvedIdentity) ([]byte, error) {
 		return readFileAs(path, id)
 	}
 	return os.ReadFile(path)
+}
+
+func statFile(path string, id Tailkittypes.ResolvedIdentity) (os.FileInfo, error) {
+	if id.Set {
+		return statFileAs(path, id)
+	}
+	return os.Stat(path)
+}
+
+func statFileAs(path string, id Tailkittypes.ResolvedIdentity) (os.FileInfo, error) {
+	type result struct {
+		info os.FileInfo
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		runtime.LockOSThread()
+		// No defer UnlockOSThread — intentionally let the thread die.
+
+		if errno := rawSetgid(id.GID); errno != 0 {
+			ch <- result{err: fmt.Errorf("setgid(%d): %w", id.GID, errno)}
+			return
+		}
+		if errno := rawSetuid(id.UID); errno != 0 {
+			ch <- result{err: fmt.Errorf("setuid(%d): %w", id.UID, errno)}
+			return
+		}
+
+		info, err := os.Stat(path)
+		ch <- result{info: info, err: err}
+	}()
+
+	r := <-ch
+	return r.info, r.err
 }
 
 // readDir reads the directory entries at path, optionally dropping to id's

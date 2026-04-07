@@ -38,10 +38,11 @@ Each `[[path]]` entry grants access to one directory. At least one entry is requ
 
 **Fields:**
 
-| Field | Type | Description |
-|---|---|---|
-| `dir` | string | Absolute path, must end with `/` |
-| `allow` | list | Permitted operations. Valid values: `read`, `write` |
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `dir` | string | — | Absolute path, must end with `/` |
+| `allow` | list | — | Permitted operations. Valid values: `read`, `write` |
+| `share` | bool | `false` | When `true`, this path is included in the `GET /files/config` response, making it discoverable by tools like `devbox`. Paths without `share = true` are never disclosed. |
 
 ```toml
 # /etc/tailkitd/integrations/files.toml
@@ -49,12 +50,14 @@ Each `[[path]]` entry grants access to one directory. At least one entry is requ
 # Dedicated drop zone for files pushed over the tailnet.
 [[path]]
 dir   = "/var/lib/tailkitd/recv/"
-allow = ["write"]
+allow = ["read", "write"]
+share = true   # visible via GET /files/config
 
 # Read access to the tailkitd config directory.
 [[path]]
 dir   = "/etc/tailkitd/"
 allow = ["read"]
+# share defaults to false — hidden from GET /files/config
 ```
 
 **Validation rules:**

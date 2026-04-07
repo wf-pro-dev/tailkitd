@@ -77,6 +77,22 @@ Lists all tools registered on this node. Tool files are read from `/etc/tailkitd
 
 Files config must be present (`files.toml`). Path access is gated by `allow` lists. Path traversal is rejected on every operation.
 
+### Config discovery
+
+```
+GET /files/config
+```
+
+Returns the node's files integration config, filtered to only include path rules where `share = true`. Paths without `share = true` are never disclosed.
+
+```json
+{
+  "paths": [
+    {"dir": "/etc/nginx/", "allow": ["read", "write"]}
+  ]
+}
+```
+
 ### Write a file
 
 ```
@@ -138,6 +154,25 @@ Default response:
 ```
 
 Pass `Accept: application/octet-stream` to receive raw bytes instead.
+
+### Stat a file
+
+```
+GET /files?path=/absolute/path/to/file&stat=true
+```
+
+Returns file metadata including a SHA-256 hash. Use this for integrity checks and drift detection without fetching the full file content.
+
+```json
+{
+  "name":    "nginx.conf",
+  "size":    1024,
+  "is_dir":  false,
+  "mod_time": "2026-01-15T10:30:00Z",
+  "mode":    "-rw-r--r--",
+  "sha256":  "e3b0c44298fc1c149afbf4c8996fb924..."
+}
+```
 
 ### List a directory
 

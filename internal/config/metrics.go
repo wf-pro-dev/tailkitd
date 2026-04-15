@@ -8,8 +8,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"go.uber.org/zap"
-
-	types "github.com/wf-pro-dev/tailkit/types/integrations"
 )
 
 const MetricsConfigPath = "/etc/tailkitd/integrations/metrics.toml"
@@ -23,25 +21,54 @@ const (
 //
 // Each sub-section maps to one metrics endpoint group. Sections are
 // independent — enabling disk does not require enabling cpu, and so on.
-type MetricsConfig types.MetricsConfig
+type MetricsConfig struct {
+	Enabled   bool                 `json:"enabled"`
+	Host      HostMetricsConfig    `json:"host" toml:"host"`
+	CPU       CPUMetricsConfig     `json:"cpu" toml:"cpu"`
+	Memory    MemoryMetricsConfig  `json:"memory" toml:"memory"`
+	Disk      DiskMetricsConfig    `json:"disk" toml:"disk"`
+	Network   NetworkMetricsConfig `json:"network" toml:"network"`
+	Processes ProcessMetricsConfig `json:"processes" toml:"processes"`
+	Ports     PortMetricsConfig    `json:"ports" toml:"ports"`
+}
 
 // HostMetricsConfig controls GET /integrations/metrics/host.
-type HostMetricsConfig types.HostMetricsConfig
+type HostMetricsConfig struct {
+	Enabled bool `json:"enabled" toml:"enabled"`
+}
 
 // CPUMetricsConfig controls GET /integrations/metrics/cpu.
-type CPUMetricsConfig types.CPUMetricsConfig
+type CPUMetricsConfig struct {
+	Enabled bool `json:"enabled" toml:"enabled"`
+}
 
 // MemoryMetricsConfig controls GET /integrations/metrics/memory.
-type MemoryMetricsConfig types.MemoryMetricsConfig
+type MemoryMetricsConfig struct {
+	Enabled bool `json:"enabled" toml:"enabled"`
+}
 
 // DiskMetricsConfig controls GET /integrations/metrics/disk.
-type DiskMetricsConfig types.DiskMetricsConfig
+type DiskMetricsConfig struct {
+	Enabled bool     `json:"enabled" toml:"enabled"`
+	Paths   []string `json:"paths" toml:"paths"`
+}
 
 // NetworkMetricsConfig controls GET /integrations/metrics/network.
-type NetworkMetricsConfig types.NetworkMetricsConfig
+type NetworkMetricsConfig struct {
+	Enabled    bool     `json:"enabled" toml:"enabled"`
+	Interfaces []string `json:"interfaces" toml:"interfaces"`
+}
 
 // ProcessMetricsConfig controls GET /integrations/metrics/processes.
-type ProcessMetricsConfig types.ProcessMetricsConfig
+type ProcessMetricsConfig struct {
+	Enabled bool `json:"enabled" toml:"enabled"`
+	Limit   *int `json:"limit,omitempty" toml:"limit"`
+}
+
+// PortMetricsConfig controls the TCP listen port metrics endpoints.
+type PortMetricsConfig struct {
+	Enabled bool `json:"enabled" toml:"enabled"`
+}
 
 // ProcessLimit returns the effective process limit.
 // Safe to call on a zero MetricsConfig — returns the default.

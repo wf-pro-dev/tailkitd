@@ -83,9 +83,11 @@ func (h *Handler) routeContainer(w http.ResponseWriter, r *http.Request) {
 		h.handleContainerRestart(w, r, id)
 	case "logs":
 		h.handleContainerLogs(w, r, id)
+	case "stats":
+		h.handleContainerStats(w, r, id)
 	default:
 		helpers.WriteError(w, http.StatusNotFound, "unknown container action: "+action,
-			"valid actions: start, stop, restart, logs")
+			"valid actions: start, stop, restart, logs, stats")
 	}
 }
 
@@ -246,6 +248,10 @@ func (h *Handler) handleContainerLogs(w http.ResponseWriter, r *http.Request, id
 		tail = "100"
 	}
 	showTimestamps := r.URL.Query().Get("timestamps") == "true"
+	if r.URL.Query().Get("follow") == "true" {
+		h.streamContainerLogs(w, r, id, tail, showTimestamps)
+		return
+	}
 
 	args := []string{"logs", "--tail", tail}
 	if showTimestamps {

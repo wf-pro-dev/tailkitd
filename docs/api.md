@@ -33,7 +33,7 @@ Operations that may take time return a job immediately and execute asynchronousl
 Poll for the result:
 
 ```
-GET /exec/jobs/{id}?id={job_id}
+GET /exec/jobs/{job_id}
 ```
 
 ```json
@@ -41,6 +41,45 @@ GET /exec/jobs/{id}?id={job_id}
 ```
 
 Job statuses: `accepted`, `completed`, `failed`. Jobs are kept in memory for 5 minutes.
+
+To stream job state instead of polling, use:
+
+```
+GET /exec/jobs/{job_id}?stream=true
+```
+
+The stream is SSE and emits:
+- `job.status`
+- `job.stdout`
+- `job.stderr`
+- `job.completed`
+- `job.failed`
+
+`Last-Event-ID` is supported for replaying missed job events on reconnect.
+
+### Streaming
+
+Streaming endpoints use Server-Sent Events (SSE) over HTTP.
+
+Common response headers:
+- `Content-Type: text/event-stream`
+- `Cache-Control: no-cache`
+
+Event format:
+
+```text
+event: <event-name>
+id: <monotonic integer>
+data: <json payload>
+```
+
+Heartbeat comments are sent periodically:
+
+```text
+: heartbeat
+```
+
+Clients can reconnect with `Last-Event-ID` to resume from the last received event where the handler supports replay.
 
 ---
 
@@ -240,13 +279,22 @@ Returns `200 {"available": true}` if docker.toml is present and the Docker daemo
 GET  /integrations/docker/containers                     List all containers
 GET  /integrations/docker/containers/{id}                Inspect a container
 GET  /integrations/docker/containers/{id}/logs?tail=100  Fetch logs
-GET  /integrations/docker/containers/{id}/stats          Resource stats (not implemented)
+GET  /integrations/docker/containers/{id}/logs?follow=true&tail=100  Stream logs over SSE
+GET  /integrations/docker/containers/{id}/stats          Stream resource stats over SSE
 POST /integrations/docker/containers/{id}/start          Start → async job
 POST /integrations/docker/containers/{id}/stop           Stop → async job
 POST /integrations/docker/containers/{id}/restart        Restart → async job
 ```
 
 Response types are Docker SDK types: `container.Summary`, `container.InspectResponse`.
+
+`GET /integrations/docker/containers/{id}/logs?follow=true` emits `log.line` events with payload:
+
+```json
+{"container_id":"abc123","stream":"stdout","ts":"2026-04-14T10:00:00Z","line":"server listening on :3000"}
+```
+
+`GET /integrations/docker/containers/{id}/stats` emits `stats.snapshot` events carrying Docker SDK `container.StatsResponse` values.
 
 ### Images
 
@@ -303,12 +351,14 @@ POST /integrations/systemd/units/{unit}/reload           Reload → async job
 POST /integrations/systemd/units/{unit}/enable           Enable → async job
 POST /integrations/systemd/units/{unit}/disable          Disable → async job
 GET  /integrations/systemd/units/{unit}/journal?lines=   Fetch unit journal
+GET  /integrations/systemd/units/{unit}/journal?follow=true&lines=   Stream unit journal over SSE
 ```
 
 ### Journal
 
 ```
 GET /integrations/systemd/journal?lines=   System-wide journal (requires system_journal = true)
+GET /integrations/systemd/journal?follow=true&lines=   Stream system journal over SSE
 ```
 
 Journal responses are arrays of `JournalEntry`:
@@ -326,6 +376,8 @@ Journal responses are arrays of `JournalEntry`:
 ```
 
 `?lines=` caps the number of entries returned. Defaults to the value set in `systemd.toml`.
+
+The streaming journal variants emit `journal.entry` events carrying the existing `JournalEntry` JSON shape.
 
 ---
 
@@ -346,13 +398,39 @@ Returns `{"available": true/false}`.
 ```
 GET /integrations/metrics/host       Host info (OS, platform, uptime)
 GET /integrations/metrics/cpu        CPU usage per core + total
+GET /integrations/metrics/cpu/stream SSE stream of CPU samples
 GET /integrations/metrics/memory     Virtual and swap memory
+GET /integrations/metrics/memory/stream SSE stream of memory samples
 GET /integrations/metrics/disk       Disk usage per configured path
 GET /integrations/metrics/network    IO counters per configured interface
+GET /integrations/metrics/network/stream SSE stream of network samples
 GET /integrations/metrics/processes  Top processes by CPU (capped by limit)
+GET /integrations/metrics/processes/stream SSE stream of process samples
 GET /integrations/metrics/all        All enabled metrics in one response
+GET /integrations/metrics/all/stream SSE stream of all enabled metrics
+GET /integrations/metrics/ports/available Ports subsection availability
+GET /integrations/metrics/ports      Snapshot of TCP LISTEN sockets
+GET /integrations/metrics/ports/stream SSE stream of port changes
 ```
 
 `/integrations/metrics/all` returns only sections that are enabled in `metrics.toml`. Disabled sections are omitted from the response (`omitempty`).
 
+When `[ports]` is enabled in `metrics.toml`, `/integrations/metrics/all` also includes a `ports` field containing the current `[]ListenPort` snapshot.
+
 Response types are [gopsutil v4](https://github.com/shirou/gopsutil) types: `host.InfoStat`, `cpu.InfoStat`, `mem.VirtualMemoryStat`, `disk.UsageStat`, `net.IOCountersStat`.
+
+### Ports
+
+`GET /integrations/metrics/ports` returns the current TCP listeners discovered from procfs:
+
+```json
+[
+  {"addr": "0.0.0.0", "port": 80, "proto": "tcp", "pid": 1234, "process": "nginx"},
+  {"addr": "127.0.0.1", "port": 3000, "proto": "tcp", "pid": 5678, "process": "node"}
+]
+```
+
+`GET /integrations/metrics/ports/stream` emits:
+- `ports.snapshot` once on connect
+- `port.bound` when a listener appears
+- `port.released` when a listener disappears

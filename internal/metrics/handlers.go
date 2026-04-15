@@ -9,6 +9,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"time"
 
 	gopsutilcpu "github.com/shirou/gopsutil/v4/cpu"
 	gopsutildisk "github.com/shirou/gopsutil/v4/disk"
@@ -24,15 +25,26 @@ import (
 
 // Handler serves all /integrations/metrics/* endpoints.
 type Handler struct {
-	cfg    config.MetricsConfig
-	logger *zap.Logger
+	cfg               config.MetricsConfig
+	logger            *zap.Logger
+	streamInterval    time.Duration
+	heartbeatInterval time.Duration
+	portSnapshotter   portSnapshotter
+	cpuSampler        func(context.Context) (CPUResult, error)
+	memorySampler     func(context.Context) (MemoryResult, error)
+	networkSampler    func(context.Context) ([]gopsutilnet.IOCountersStat, error)
+	processSampler    func(context.Context) ([]ProcessStat, error)
+	allSampler        func(context.Context) (AllMetrics, error)
 }
 
 // NewHandler constructs a metrics Handler.
 func NewHandler(cfg config.MetricsConfig, logger *zap.Logger) *Handler {
 	return &Handler{
-		cfg:    cfg,
-		logger: logger.With(zap.String("component", "metrics")),
+		cfg:               cfg,
+		logger:            logger.With(zap.String("component", "metrics")),
+		streamInterval:    2 * time.Second,
+		heartbeatInterval: 15 * time.Second,
+		portSnapshotter:   newProcPortSnapshotter("/proc"),
 	}
 }
 
@@ -57,6 +69,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/integrations/metrics/network", h.handleNetwork)
 	mux.HandleFunc("/integrations/metrics/processes", h.handleProcesses)
 	mux.HandleFunc("/integrations/metrics/all", h.handleAll)
+	mux.HandleFunc("/integrations/metrics/cpu/stream", h.handleCPUStream)
+	mux.HandleFunc("/integrations/metrics/memory/stream", h.handleMemoryStream)
+	mux.HandleFunc("/integrations/metrics/network/stream", h.handleNetworkStream)
+	mux.HandleFunc("/integrations/metrics/processes/stream", h.handleProcessesStream)
+	mux.HandleFunc("/integrations/metrics/all/stream", h.handleAllStream)
+	mux.HandleFunc("/integrations/metrics/ports/available", h.handlePortsAvailable)
+	mux.HandleFunc("/integrations/metrics/ports", h.handlePorts)
+	mux.HandleFunc("/integrations/metrics/ports/stream", h.handlePortsStream)
 }
 
 // ─── Guards ───────────────────────────────────────────────────────────────────
@@ -133,36 +153,13 @@ func (h *Handler) handleCPU(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// interval=0 → instantaneous sample comparing against last call.
-	// percpu=true → one percentage per logical CPU.
-	percents, err := gopsutilcpu.PercentWithContext(r.Context(), 0, true)
+	result, err := h.sampleCPU(r.Context())
 	if err != nil {
-		h.logger.Error("metrics: cpu percent failed", zap.Error(err))
+		h.logger.Error("metrics: cpu sample failed", zap.Error(err))
 		helpers.WriteError(w, http.StatusInternalServerError, "failed to get CPU metrics", "")
 		return
 	}
-
-	info, err := gopsutilcpu.InfoWithContext(r.Context())
-	if err != nil {
-		// Non-fatal — some environments (containers) can't read CPU info.
-		h.logger.Warn("metrics: cpu info unavailable", zap.Error(err))
-		info = nil
-	}
-
-	// Compute aggregate total as average across all CPUs.
-	total := 0.0
-	for _, p := range percents {
-		total += p
-	}
-	if len(percents) > 0 {
-		total /= float64(len(percents))
-	}
-
-	helpers.WriteJSON(w, http.StatusOK, CPUResult{
-		Info:    info,
-		Percent: percents,
-		Total:   total,
-	})
+	helpers.WriteJSON(w, http.StatusOK, result)
 }
 
 // ─── GET /integrations/metrics/memory ────────────────────────────────────────
@@ -183,20 +180,13 @@ func (h *Handler) handleMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vmem, err := gopsutilmem.VirtualMemoryWithContext(r.Context())
+	result, err := h.sampleMemory(r.Context())
 	if err != nil {
-		h.logger.Error("metrics: virtual memory failed", zap.Error(err))
+		h.logger.Error("metrics: memory sample failed", zap.Error(err))
 		helpers.WriteError(w, http.StatusInternalServerError, "failed to get memory metrics", "")
 		return
 	}
-
-	swap, err := gopsutilmem.SwapMemoryWithContext(r.Context())
-	if err != nil {
-		h.logger.Warn("metrics: swap memory unavailable", zap.Error(err))
-		swap = nil
-	}
-
-	helpers.WriteJSON(w, http.StatusOK, MemoryResult{Virtual: vmem, Swap: swap})
+	helpers.WriteJSON(w, http.StatusOK, result)
 }
 
 // ─── GET /integrations/metrics/disk ──────────────────────────────────────────
@@ -251,31 +241,13 @@ func (h *Handler) handleNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ifaces := h.cfg.Network.Interfaces
-
-	counters, err := gopsutilnet.IOCountersWithContext(r.Context(), true /* pernic */)
+	counters, err := h.sampleNetwork(r.Context())
 	if err != nil {
-		h.logger.Error("metrics: network IO counters failed", zap.Error(err))
+		h.logger.Error("metrics: network sample failed", zap.Error(err))
 		helpers.WriteError(w, http.StatusInternalServerError,
 			"failed to get network metrics", "")
 		return
 	}
-
-	// Filter to configured interfaces if specified.
-	if len(ifaces) > 0 {
-		ifaceSet := make(map[string]bool, len(ifaces))
-		for _, iface := range ifaces {
-			ifaceSet[iface] = true
-		}
-		filtered := counters[:0]
-		for _, c := range counters {
-			if ifaceSet[c.Name] {
-				filtered = append(filtered, c)
-			}
-		}
-		counters = filtered
-	}
-
 	helpers.WriteJSON(w, http.StatusOK, counters)
 }
 
@@ -303,27 +275,13 @@ func (h *Handler) handleProcesses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	procs, err := gopsutilproc.ProcessesWithContext(r.Context())
+	stats, err := h.sampleProcesses(r.Context())
 	if err != nil {
-		h.logger.Error("metrics: process list failed", zap.Error(err))
+		h.logger.Error("metrics: process sample failed", zap.Error(err))
 		helpers.WriteError(w, http.StatusInternalServerError,
 			"failed to list processes", "")
 		return
 	}
-
-	stats := collectProcessStats(r.Context(), procs)
-
-	// Sort by CPU descending — highest consumers first.
-	sort.Slice(stats, func(i, j int) bool {
-		return stats[i].CPUPercent > stats[j].CPUPercent
-	})
-
-	// Cap to configured limit.
-	limit := h.cfg.ProcessLimit()
-	if len(stats) > limit {
-		stats = stats[:limit]
-	}
-
 	helpers.WriteJSON(w, http.StatusOK, stats)
 }
 
@@ -374,43 +332,135 @@ type AllMetrics struct {
 	Disk      []*gopsutildisk.UsageStat    `json:"disk,omitempty"`
 	Network   []gopsutilnet.IOCountersStat `json:"network,omitempty"`
 	Processes []ProcessStat                `json:"processes,omitempty"`
+	Ports     []ListenPort                 `json:"ports,omitempty"`
 }
 
 func (h *Handler) handleAll(w http.ResponseWriter, r *http.Request) {
 	if !h.guard(w) || !methodGet(w, r) {
 		return
 	}
+	result, _ := h.sampleAll(r.Context())
+	helpers.WriteJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) sampleCPU(ctx context.Context) (CPUResult, error) {
+	if h.cpuSampler != nil {
+		return h.cpuSampler(ctx)
+	}
+
+	percents, err := gopsutilcpu.PercentWithContext(ctx, 0, true)
+	if err != nil {
+		return CPUResult{}, err
+	}
+
+	info, err := gopsutilcpu.InfoWithContext(ctx)
+	if err != nil {
+		h.logger.Warn("metrics: cpu info unavailable", zap.Error(err))
+		info = nil
+	}
+
+	total := 0.0
+	for _, p := range percents {
+		total += p
+	}
+	if len(percents) > 0 {
+		total /= float64(len(percents))
+	}
+	return CPUResult{Info: info, Percent: percents, Total: total}, nil
+}
+
+func (h *Handler) sampleMemory(ctx context.Context) (MemoryResult, error) {
+	if h.memorySampler != nil {
+		return h.memorySampler(ctx)
+	}
+
+	vmem, err := gopsutilmem.VirtualMemoryWithContext(ctx)
+	if err != nil {
+		return MemoryResult{}, err
+	}
+	swap, err := gopsutilmem.SwapMemoryWithContext(ctx)
+	if err != nil {
+		h.logger.Warn("metrics: swap memory unavailable", zap.Error(err))
+		swap = nil
+	}
+	return MemoryResult{Virtual: vmem, Swap: swap}, nil
+}
+
+func (h *Handler) sampleNetwork(ctx context.Context) ([]gopsutilnet.IOCountersStat, error) {
+	if h.networkSampler != nil {
+		return h.networkSampler(ctx)
+	}
+
+	counters, err := gopsutilnet.IOCountersWithContext(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	ifaces := h.cfg.Network.Interfaces
+	if len(ifaces) == 0 {
+		return counters, nil
+	}
+
+	ifaceSet := make(map[string]bool, len(ifaces))
+	for _, iface := range ifaces {
+		ifaceSet[iface] = true
+	}
+	filtered := counters[:0]
+	for _, c := range counters {
+		if ifaceSet[c.Name] {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered, nil
+}
+
+func (h *Handler) sampleProcesses(ctx context.Context) ([]ProcessStat, error) {
+	if h.processSampler != nil {
+		return h.processSampler(ctx)
+	}
+
+	procs, err := gopsutilproc.ProcessesWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stats := collectProcessStats(ctx, procs)
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].CPUPercent > stats[j].CPUPercent
+	})
+	limit := h.cfg.ProcessLimit()
+	if len(stats) > limit {
+		stats = stats[:limit]
+	}
+	return stats, nil
+}
+
+func (h *Handler) samplePorts(ctx context.Context) ([]ListenPort, error) {
+	if h.portSnapshotter == nil {
+		return nil, nil
+	}
+	return h.portSnapshotter.Snapshot(ctx)
+}
+
+func (h *Handler) sampleAll(ctx context.Context) (AllMetrics, error) {
+	if h.allSampler != nil {
+		return h.allSampler(ctx)
+	}
 
 	result := AllMetrics{}
-	ctx := r.Context()
-
 	if h.cfg.Host.Enabled {
 		if info, err := gopsutilhost.InfoWithContext(ctx); err == nil {
 			result.Host = info
 		}
 	}
-
 	if h.cfg.CPU.Enabled {
-		if percents, err := gopsutilcpu.PercentWithContext(ctx, 0, true); err == nil {
-			info, _ := gopsutilcpu.InfoWithContext(ctx)
-			total := 0.0
-			for _, p := range percents {
-				total += p
-			}
-			if len(percents) > 0 {
-				total /= float64(len(percents))
-			}
-			result.CPU = &CPUResult{Info: info, Percent: percents, Total: total}
+		if cpuResult, err := h.sampleCPU(ctx); err == nil {
+			result.CPU = &cpuResult
 		}
 	}
-
 	if h.cfg.Memory.Enabled {
-		if vmem, err := gopsutilmem.VirtualMemoryWithContext(ctx); err == nil {
-			swap, _ := gopsutilmem.SwapMemoryWithContext(ctx)
-			result.Memory = &MemoryResult{Virtual: vmem, Swap: swap}
+		if memoryResult, err := h.sampleMemory(ctx); err == nil {
+			result.Memory = &memoryResult
 		}
 	}
-
 	if h.cfg.Disk.Enabled {
 		paths := h.cfg.Disk.Paths
 		if len(paths) == 0 {
@@ -426,38 +476,20 @@ func (h *Handler) handleAll(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
 	if h.cfg.Network.Enabled {
-		if counters, err := gopsutilnet.IOCountersWithContext(ctx, true); err == nil {
-			if len(h.cfg.Network.Interfaces) > 0 {
-				ifaceSet := make(map[string]bool)
-				for _, iface := range h.cfg.Network.Interfaces {
-					ifaceSet[iface] = true
-				}
-				for _, c := range counters {
-					if ifaceSet[c.Name] {
-						result.Network = append(result.Network, c)
-					}
-				}
-			} else {
-				result.Network = counters
-			}
+		if counters, err := h.sampleNetwork(ctx); err == nil {
+			result.Network = counters
 		}
 	}
-
 	if h.cfg.Processes.Enabled {
-		if procs, err := gopsutilproc.ProcessesWithContext(ctx); err == nil {
-			stats := collectProcessStats(ctx, procs)
-			sort.Slice(stats, func(i, j int) bool {
-				return stats[i].CPUPercent > stats[j].CPUPercent
-			})
-			limit := h.cfg.ProcessLimit()
-			if len(stats) > limit {
-				stats = stats[:limit]
-			}
+		if stats, err := h.sampleProcesses(ctx); err == nil {
 			result.Processes = stats
 		}
 	}
-
-	helpers.WriteJSON(w, http.StatusOK, result)
+	if h.cfg.Ports.Enabled {
+		if ports, err := h.samplePorts(ctx); err == nil {
+			result.Ports = ports
+		}
+	}
+	return result, nil
 }

@@ -23,18 +23,25 @@ import (
 
 // Handler serves all /integrations/systemd/* endpoints.
 type Handler struct {
-	client *Client
-	jobs   *TailkitdExec.JobStore
-	logger *zap.Logger
+	client                  *Client
+	jobs                    *TailkitdExec.JobStore
+	logger                  *zap.Logger
+	streamHeartbeatInterval time.Duration
+	available               func(context.Context) bool
+	followJournal           func(ctx context.Context, unit string, lines int, priority string, fn func(JournalEntry) error) error
 }
 
 // NewHandler constructs a systemd Handler.
 func NewHandler(client *Client, jobs *TailkitdExec.JobStore, logger *zap.Logger) *Handler {
-	return &Handler{
-		client: client,
-		jobs:   jobs,
-		logger: logger.With(zap.String("component", "systemd")),
+	h := &Handler{
+		client:                  client,
+		jobs:                    jobs,
+		logger:                  logger.With(zap.String("component", "systemd")),
+		streamHeartbeatInterval: 15 * time.Second,
 	}
+	h.available = client.Available
+	h.followJournal = h.defaultFollowJournal
+	return h
 }
 
 // Register mounts all systemd endpoints onto mux.
@@ -69,7 +76,7 @@ func (h *Handler) guard(w http.ResponseWriter) bool {
 			"create /etc/tailkitd/integrations/systemd.toml to enable")
 		return false
 	}
-	if !h.client.Available(context.Background()) {
+	if !h.available(context.Background()) {
 		helpers.WriteError(w, http.StatusServiceUnavailable,
 			"systemd D-Bus connection unavailable",
 			"check that tailkitd has D-Bus access")
@@ -464,16 +471,7 @@ func (h *Handler) handleUnitJournal(w http.ResponseWriter, r *http.Request, unit
 			"journal integration not available in systemd.toml", "")
 		return
 	}
-
-	lines := parseLines(r, h.client.cfg.Journal.Lines)
-	entries, err := h.readJournal(r.Context(), unit, lines, h.client.cfg.Journal.Priority)
-	if err != nil {
-		h.logger.Error("systemd: journal read failed",
-			zap.String("unit", unit), zap.Error(err))
-		helpers.WriteError(w, http.StatusInternalServerError, "failed to read journal", "")
-		return
-	}
-	helpers.WriteJSON(w, http.StatusOK, entries)
+	h.handleUnitJournalFollowOrSnapshot(w, r, unit)
 }
 
 // handleSystemJournal serves GET /integrations/systemd/journal.
@@ -492,6 +490,10 @@ func (h *Handler) handleSystemJournal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lines := parseLines(r, h.client.cfg.Journal.Lines)
+	if r.URL.Query().Get("follow") == "true" {
+		h.streamJournal(w, r, "", lines, h.client.cfg.Journal.Priority)
+		return
+	}
 	// Empty unit string → no unit filter → system-wide journal.
 	entries, err := h.readJournal(r.Context(), "", lines, h.client.cfg.Journal.Priority)
 	if err != nil {

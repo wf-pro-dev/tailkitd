@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	dockertypescontainer "github.com/docker/docker/api/types/container"
 	"go.uber.org/zap"
 
 	"github.com/wf-pro-dev/tailkit/types"
@@ -18,10 +19,13 @@ import (
 )
 
 type Handler struct {
-	cfg    config.DockerConfig
-	jobs   *exec.JobStore
-	logger *zap.Logger
-	client *Client
+	cfg                     config.DockerConfig
+	jobs                    *exec.JobStore
+	logger                  *zap.Logger
+	client                  *Client
+	streamHeartbeatInterval time.Duration
+	followContainerLogs     func(ctx context.Context, id, tail string, timestamps bool, fn func(LogLine) error) error
+	streamContainerStats    func(ctx context.Context, id string, fn func(dockertypescontainer.StatsResponse) error) error
 }
 
 // ComposeProject is the JSON shape returned by the projects listing.

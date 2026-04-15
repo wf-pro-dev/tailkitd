@@ -184,6 +184,7 @@ Controls which host metrics are exposed. All sections are independent.
 | `[disk]` | `paths` — list of absolute mount points to report. Empty = all filesystems |
 | `[network]` | `interfaces` — list of interface names to report. Empty = all interfaces |
 | `[processes]` | `limit` — max processes returned, sorted by CPU desc. Range: 1–100. Default: 20 |
+| `[ports]` | no extra fields; enables TCP LISTEN socket discovery and streaming |
 
 ```toml
 # /etc/tailkitd/integrations/metrics.toml
@@ -208,7 +209,15 @@ interfaces = []
 [processes]
 enabled = true
 limit   = 20
+
+[ports]
+enabled = true
 ```
+
+**Ports behavior:**
+- If `[ports]` is absent or `enabled = false`, `/integrations/metrics/ports*` returns `503`
+- When enabled, tailkitd reads `/proc/net/tcp`, `/proc/net/tcp6`, and `/proc/<pid>/fd` to resolve listening sockets and best-effort owning process metadata
+- `pid` may be `-1` and `process` may be empty when procfs ownership could not be resolved
 
 ---
 

@@ -16,12 +16,16 @@ import (
 // cfg is loaded from docker.toml at startup; client is the shared Docker SDK
 // wrapper; jobs is the daemon-wide in-memory job store.
 func NewHandler(cfg config.DockerConfig, client *Client, jobs *exec.JobStore, logger *zap.Logger) *Handler {
-	return &Handler{
-		cfg:    cfg,
-		client: client,
-		jobs:   jobs,
-		logger: logger,
+	h := &Handler{
+		cfg:                     cfg,
+		client:                  client,
+		jobs:                    jobs,
+		logger:                  logger,
+		streamHeartbeatInterval: 15 * time.Second,
 	}
+	h.followContainerLogs = h.defaultFollowContainerLogs
+	h.streamContainerStats = h.defaultStreamContainerStats
+	return h
 }
 
 // Register wires all /integrations/docker/* routes onto mux.

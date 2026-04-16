@@ -19,6 +19,7 @@ import (
 	gopsutilproc "github.com/shirou/gopsutil/v4/process"
 	"go.uber.org/zap"
 
+	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 )
@@ -30,11 +31,11 @@ type Handler struct {
 	streamInterval    time.Duration
 	heartbeatInterval time.Duration
 	portSnapshotter   portSnapshotter
-	cpuSampler        func(context.Context) (CPUResult, error)
-	memorySampler     func(context.Context) (MemoryResult, error)
+	cpuSampler        func(context.Context) (types.CPUResult, error)
+	memorySampler     func(context.Context) (types.MemoryResult, error)
 	networkSampler    func(context.Context) ([]gopsutilnet.IOCountersStat, error)
-	processSampler    func(context.Context) ([]ProcessStat, error)
-	allSampler        func(context.Context) (AllMetrics, error)
+	processSampler    func(context.Context) ([]types.ProcessStat, error)
+	allSampler        func(context.Context) (types.AllMetrics, error)
 }
 
 // NewHandler constructs a metrics Handler.
@@ -287,8 +288,8 @@ func (h *Handler) handleProcesses(w http.ResponseWriter, r *http.Request) {
 
 // collectProcessStats gathers stats for each process, skipping those that
 // error (e.g. permission denied on /proc/<pid>/status for kernel threads).
-func collectProcessStats(ctx context.Context, procs []*gopsutilproc.Process) []ProcessStat {
-	stats := make([]ProcessStat, 0, len(procs))
+func collectProcessStats(ctx context.Context, procs []*gopsutilproc.Process) []types.ProcessStat {
+	stats := make([]types.ProcessStat, 0, len(procs))
 	for _, p := range procs {
 		name, err := p.NameWithContext(ctx)
 		if err != nil {
@@ -309,7 +310,7 @@ func collectProcessStats(ctx context.Context, procs []*gopsutilproc.Process) []P
 
 		cmdline, _ := p.CmdlineWithContext(ctx)
 
-		stats = append(stats, ProcessStat{
+		stats = append(stats, types.ProcessStat{
 			PID:        p.Pid,
 			Name:       name,
 			Status:     status,
@@ -323,18 +324,6 @@ func collectProcessStats(ctx context.Context, procs []*gopsutilproc.Process) []P
 
 // ─── GET /integrations/metrics/all ───────────────────────────────────────────
 
-// AllMetrics bundles every enabled metric into a single response.
-// This lets callers fetch everything in one round trip.
-type AllMetrics struct {
-	Host      *gopsutilhost.InfoStat       `json:"host,omitempty"`
-	CPU       *CPUResult                   `json:"cpu,omitempty"`
-	Memory    *MemoryResult                `json:"memory,omitempty"`
-	Disk      []*gopsutildisk.UsageStat    `json:"disk,omitempty"`
-	Network   []gopsutilnet.IOCountersStat `json:"network,omitempty"`
-	Processes []ProcessStat                `json:"processes,omitempty"`
-	Ports     []ListenPort                 `json:"ports,omitempty"`
-}
-
 func (h *Handler) handleAll(w http.ResponseWriter, r *http.Request) {
 	if !h.guard(w) || !methodGet(w, r) {
 		return
@@ -343,14 +332,14 @@ func (h *Handler) handleAll(w http.ResponseWriter, r *http.Request) {
 	helpers.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *Handler) sampleCPU(ctx context.Context) (CPUResult, error) {
+func (h *Handler) sampleCPU(ctx context.Context) (types.CPUResult, error) {
 	if h.cpuSampler != nil {
 		return h.cpuSampler(ctx)
 	}
 
 	percents, err := gopsutilcpu.PercentWithContext(ctx, 0, true)
 	if err != nil {
-		return CPUResult{}, err
+		return types.CPUResult{}, err
 	}
 
 	info, err := gopsutilcpu.InfoWithContext(ctx)
@@ -366,24 +355,24 @@ func (h *Handler) sampleCPU(ctx context.Context) (CPUResult, error) {
 	if len(percents) > 0 {
 		total /= float64(len(percents))
 	}
-	return CPUResult{Info: info, Percent: percents, Total: total}, nil
+	return types.CPUResult{Info: info, Percent: percents, Total: total}, nil
 }
 
-func (h *Handler) sampleMemory(ctx context.Context) (MemoryResult, error) {
+func (h *Handler) sampleMemory(ctx context.Context) (types.MemoryResult, error) {
 	if h.memorySampler != nil {
 		return h.memorySampler(ctx)
 	}
 
 	vmem, err := gopsutilmem.VirtualMemoryWithContext(ctx)
 	if err != nil {
-		return MemoryResult{}, err
+		return types.MemoryResult{}, err
 	}
 	swap, err := gopsutilmem.SwapMemoryWithContext(ctx)
 	if err != nil {
 		h.logger.Warn("metrics: swap memory unavailable", zap.Error(err))
 		swap = nil
 	}
-	return MemoryResult{Virtual: vmem, Swap: swap}, nil
+	return types.MemoryResult{Virtual: vmem, Swap: swap}, nil
 }
 
 func (h *Handler) sampleNetwork(ctx context.Context) ([]gopsutilnet.IOCountersStat, error) {
@@ -413,7 +402,7 @@ func (h *Handler) sampleNetwork(ctx context.Context) ([]gopsutilnet.IOCountersSt
 	return filtered, nil
 }
 
-func (h *Handler) sampleProcesses(ctx context.Context) ([]ProcessStat, error) {
+func (h *Handler) sampleProcesses(ctx context.Context) ([]types.ProcessStat, error) {
 	if h.processSampler != nil {
 		return h.processSampler(ctx)
 	}
@@ -433,19 +422,19 @@ func (h *Handler) sampleProcesses(ctx context.Context) ([]ProcessStat, error) {
 	return stats, nil
 }
 
-func (h *Handler) samplePorts(ctx context.Context) ([]ListenPort, error) {
+func (h *Handler) samplePorts(ctx context.Context) ([]types.ListenPort, error) {
 	if h.portSnapshotter == nil {
 		return nil, nil
 	}
 	return h.portSnapshotter.Snapshot(ctx)
 }
 
-func (h *Handler) sampleAll(ctx context.Context) (AllMetrics, error) {
+func (h *Handler) sampleAll(ctx context.Context) (types.AllMetrics, error) {
 	if h.allSampler != nil {
 		return h.allSampler(ctx)
 	}
 
-	result := AllMetrics{}
+	result := types.AllMetrics{}
 	if h.cfg.Host.Enabled {
 		if info, err := gopsutilhost.InfoWithContext(ctx); err == nil {
 			result.Host = info

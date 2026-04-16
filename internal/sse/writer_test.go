@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wf-pro-dev/tailkit"
 )
 
 func TestNewWriterSetsSSEHeaders(t *testing.T) {
@@ -48,18 +50,18 @@ func TestWriterSendAssignsMonotonicIDs(t *testing.T) {
 		t.Fatalf("NewWriter() error = %v", err)
 	}
 
-	if err := sw.Send("metrics.cpu", map[string]string{"status": "ok"}); err != nil {
+	if err := sw.Send(tailkit.EventCPU, map[string]string{"status": "ok"}); err != nil {
 		t.Fatalf("Send() first error = %v", err)
 	}
-	if err := sw.Send("metrics.memory", map[string]string{"status": "ok"}); err != nil {
+	if err := sw.Send(tailkit.EventMemory, map[string]string{"status": "ok"}); err != nil {
 		t.Fatalf("Send() second error = %v", err)
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "event: metrics.cpu\nid: 1\ndata: {\"status\":\"ok\"}\n\n") {
+	if !strings.Contains(body, "event: "+tailkit.EventCPU+"\nid: 1\ndata: {\"status\":\"ok\"}\n\n") {
 		t.Fatalf("first event missing from body: %q", body)
 	}
-	if !strings.Contains(body, "event: metrics.memory\nid: 2\ndata: {\"status\":\"ok\"}\n\n") {
+	if !strings.Contains(body, "event: "+tailkit.EventMemory+"\nid: 2\ndata: {\"status\":\"ok\"}\n\n") {
 		t.Fatalf("second event missing from body: %q", body)
 	}
 }
@@ -96,7 +98,7 @@ func TestWriterDetectsCanceledRequest(t *testing.T) {
 
 	cancel()
 
-	if err := sw.Send("metrics.cpu", map[string]string{"status": "ok"}); !errors.Is(err, ErrClientGone) {
+	if err := sw.Send(tailkit.EventCPU, map[string]string{"status": "ok"}); !errors.Is(err, ErrClientGone) {
 		t.Fatalf("Send() error = %v, want %v", err, ErrClientGone)
 	}
 	if err := sw.Heartbeat(); !errors.Is(err, ErrClientGone) {

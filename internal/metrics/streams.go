@@ -9,6 +9,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"github.com/wf-pro-dev/tailkitd/internal/sse"
 )
@@ -22,7 +24,7 @@ func (h *Handler) handleCPUStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, "metrics.cpu", func(ctx context.Context) (any, error) {
+		return h.streamSnapshot(ctx, sw, tailkit.EventCPU, func(ctx context.Context) (any, error) {
 			return h.sampleCPU(ctx)
 		})
 	})(w, r)
@@ -37,7 +39,7 @@ func (h *Handler) handleMemoryStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, "metrics.memory", func(ctx context.Context) (any, error) {
+		return h.streamSnapshot(ctx, sw, tailkit.EventMemory, func(ctx context.Context) (any, error) {
 			return h.sampleMemory(ctx)
 		})
 	})(w, r)
@@ -52,7 +54,7 @@ func (h *Handler) handleNetworkStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, "metrics.network", func(ctx context.Context) (any, error) {
+		return h.streamSnapshot(ctx, sw, tailkit.EventNetwork, func(ctx context.Context) (any, error) {
 			return h.sampleNetwork(ctx)
 		})
 	})(w, r)
@@ -67,7 +69,7 @@ func (h *Handler) handleProcessesStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, "metrics.processes", func(ctx context.Context) (any, error) {
+		return h.streamSnapshot(ctx, sw, tailkit.EventProcesses, func(ctx context.Context) (any, error) {
 			return h.sampleProcesses(ctx)
 		})
 	})(w, r)
@@ -78,7 +80,7 @@ func (h *Handler) handleAllStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, "metrics.all", func(ctx context.Context) (any, error) {
+		return h.streamSnapshot(ctx, sw, tailkit.EventAll, func(ctx context.Context) (any, error) {
 			return h.sampleAll(ctx)
 		})
 	})(w, r)
@@ -156,7 +158,7 @@ func (h *Handler) handlePortsStream(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if err := sw.Send("ports.snapshot", PortsSnapshotEvent{
+		if err := sw.Send(tailkit.EventPortsSnapshot, types.PortEvent{
 			Kind:  "snapshot",
 			Ports: current,
 		}); err != nil {
@@ -176,12 +178,12 @@ func (h *Handler) handlePortsStream(w http.ResponseWriter, r *http.Request) {
 					return err
 				}
 				for _, port := range diffPorts(previous, current) {
-					if err := sw.Send("port.bound", PortEvent{Kind: "bound", Port: port}); err != nil {
+					if err := sw.Send("port.bound", types.PortEvent{Kind: "bound", Port: port}); err != nil {
 						return err
 					}
 				}
 				for _, port := range diffPorts(current, previous) {
-					if err := sw.Send("port.released", PortEvent{Kind: "released", Port: port}); err != nil {
+					if err := sw.Send("port.released", types.PortEvent{Kind: "released", Port: port}); err != nil {
 						return err
 					}
 				}
@@ -191,13 +193,13 @@ func (h *Handler) handlePortsStream(w http.ResponseWriter, r *http.Request) {
 	})(w, r)
 }
 
-func diffPorts(before, after []ListenPort) []ListenPort {
+func diffPorts(before, after []types.ListenPort) []types.ListenPort {
 	known := make(map[string]struct{}, len(before))
 	for _, port := range before {
 		known[portIdentity(port)] = struct{}{}
 	}
 
-	var diff []ListenPort
+	var diff []types.ListenPort
 	for _, port := range after {
 		if _, ok := known[portIdentity(port)]; ok {
 			continue
@@ -219,6 +221,6 @@ func diffPorts(before, after []ListenPort) []ListenPort {
 	return diff
 }
 
-func portIdentity(port ListenPort) string {
+func portIdentity(port types.ListenPort) string {
 	return fmt.Sprintf("%s|%d|%s|%d", port.Addr, port.Port, port.Proto, port.PID)
 }

@@ -13,15 +13,16 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 )
 
 type staticPortSnapshotter struct {
-	snapshots [][]ListenPort
+	snapshots [][]types.ListenPort
 	call      int
 }
 
-func (s *staticPortSnapshotter) Snapshot(_ context.Context) ([]ListenPort, error) {
+func (s *staticPortSnapshotter) Snapshot(_ context.Context) ([]types.ListenPort, error) {
 	if s.call >= len(s.snapshots) {
 		return nil, nil
 	}
@@ -79,7 +80,7 @@ func TestMetricsPortsEndpoints(t *testing.T) {
 		},
 	}, zap.NewNop())
 	handler.portSnapshotter = &staticPortSnapshotter{
-		snapshots: [][]ListenPort{{
+		snapshots: [][]types.ListenPort{{
 			{Addr: "0.0.0.0", Port: 80, Proto: "tcp", PID: 1234, Process: "nginx"},
 		}},
 	}
@@ -104,7 +105,7 @@ func TestMetricsPortsEndpoints(t *testing.T) {
 			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 		}
 
-		var ports []ListenPort
+		var ports []types.ListenPort
 		if err := json.Unmarshal(rec.Body.Bytes(), &ports); err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -127,7 +128,7 @@ func TestMetricsPortsStream(t *testing.T) {
 	handler.streamInterval = 5 * time.Millisecond
 	handler.heartbeatInterval = 50 * time.Millisecond
 	handler.portSnapshotter = &staticPortSnapshotter{
-		snapshots: [][]ListenPort{
+		snapshots: [][]types.ListenPort{
 			{{Addr: "0.0.0.0", Port: 80, Proto: "tcp", PID: 1234, Process: "nginx"}},
 			{
 				{Addr: "0.0.0.0", Port: 80, Proto: "tcp", PID: 1234, Process: "nginx"},
@@ -163,7 +164,7 @@ func TestMetricsAllIncludesPorts(t *testing.T) {
 		},
 	}, zap.NewNop())
 	handler.portSnapshotter = &staticPortSnapshotter{
-		snapshots: [][]ListenPort{{
+		snapshots: [][]types.ListenPort{{
 			{Addr: "0.0.0.0", Port: 443, Proto: "tcp", PID: 4321, Process: "caddy"},
 		}},
 	}
@@ -175,7 +176,7 @@ func TestMetricsAllIncludesPorts(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var got AllMetrics
+	var got types.AllMetrics
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}

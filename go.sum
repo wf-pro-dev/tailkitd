@@ -252,6 +252,8 @@ github.com/vishvananda/netns v0.0.5 h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zd
 github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
 github.com/wf-pro-dev/tailkit v0.3.0 h1:dcHEE/jDxdlI9iL/59qtEOPDaFUh6xAE7SS0qR3iXtY=
 github.com/wf-pro-dev/tailkit v0.3.0/go.mod h1:6DxyOgVxGbYa5Pn3vbY+HWUlo9PQ5erMq28qd0au208=
+github.com/wf-pro-dev/tailkit v0.3.4 h1:mJQVN5C7k5p6n6pFe5jso/xUcJq+9c+ITSN58b+3+qk=
+github.com/wf-pro-dev/tailkit v0.3.4/go.mod h1:nRevUeZFbIlGRh/6q2cU+ufqOlL8I6DatlXPPmLtzjg=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/yusufpapurcu/wmi v1.2.4 h1:zFUKzehAFReQwLys1b/iSMl+JQGSCSjtVqQn9bBrPo0=

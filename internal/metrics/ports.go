@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/wf-pro-dev/tailkit/types"
 )
 
 type ListenPort struct {
@@ -33,7 +35,7 @@ type PortsSnapshotEvent struct {
 }
 
 type portSnapshotter interface {
-	Snapshot(context.Context) ([]ListenPort, error)
+	Snapshot(context.Context) ([]types.ListenPort, error)
 }
 
 type procPortSnapshotter struct {
@@ -44,14 +46,14 @@ func newProcPortSnapshotter(procRoot string) *procPortSnapshotter {
 	return &procPortSnapshotter{procRoot: procRoot}
 }
 
-func (p *procPortSnapshotter) Snapshot(_ context.Context) ([]ListenPort, error) {
+func (p *procPortSnapshotter) Snapshot(_ context.Context) ([]types.ListenPort, error) {
 	sockets, err := p.readSockets()
 	if err != nil {
 		return nil, err
 	}
-	ports := make(map[string]ListenPort, len(sockets))
+	ports := make(map[string]types.ListenPort, len(sockets))
 	for _, socket := range sockets {
-		ports[socket.inode] = ListenPort{
+		ports[socket.inode] = types.ListenPort{
 			Addr:    socket.addr,
 			Port:    socket.port,
 			Proto:   "tcp",
@@ -67,7 +69,7 @@ func (p *procPortSnapshotter) Snapshot(_ context.Context) ([]ListenPort, error) 
 		return nil, err
 	}
 
-	snapshot := make([]ListenPort, 0, len(ports))
+	snapshot := make([]types.ListenPort, 0, len(ports))
 	for _, port := range ports {
 		snapshot = append(snapshot, port)
 	}
@@ -187,7 +189,7 @@ func decodeProcIP(value string, ipv6 bool) (string, error) {
 	return net.IP(decoded).String(), nil
 }
 
-func (p *procPortSnapshotter) resolveProcesses(ports map[string]ListenPort) error {
+func (p *procPortSnapshotter) resolveProcesses(ports map[string]types.ListenPort) error {
 	entries, err := os.ReadDir(p.procRoot)
 	if err != nil {
 		return err

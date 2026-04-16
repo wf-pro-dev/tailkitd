@@ -2,9 +2,9 @@ package metrics
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	gopsutilnet "github.com/shirou/gopsutil/v4/net"
@@ -232,5 +232,5 @@ func diffPorts(before, after []types.Port) []types.Port {
 }
 
 func portIdentity(port types.Port) string {
-	return fmt.Sprintf("%s|%d|%s|%d", port.Addr, port.Port, port.Proto, port.PID)
+	return port.Addr + "|" + port.Proto + "|" + strconv.Itoa(int(port.Port))
 }

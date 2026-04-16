@@ -24,8 +24,11 @@ type staticPortSnapshotter struct {
 }
 
 func (s *staticPortSnapshotter) Snapshot(_ context.Context) ([]types.Port, error) {
-	if s.call >= len(s.snapshots) {
+	if len(s.snapshots) == 0 {
 		return nil, nil
+	}
+	if s.call >= len(s.snapshots) {
+		return s.snapshots[len(s.snapshots)-1], nil
 	}
 	snapshot := s.snapshots[s.call]
 	s.call++
@@ -46,14 +49,26 @@ func TestProcPortSnapshotterSnapshot(t *testing.T) {
 	const tcp = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12345 1 0000000000000000 100 0 0 10 0
 `
+	const udp = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
+   1: 00000000:14E9 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000        0 54321 2 0000000000000000 0
+`
 	if err := os.WriteFile(filepath.Join(root, "net", "tcp"), []byte(tcp), 0o644); err != nil {
 		t.Fatalf("WriteFile(tcp) error = %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "net", "tcp6"), []byte("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(tcp6) error = %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "net", "udp"), []byte(udp), 0o644); err != nil {
+		t.Fatalf("WriteFile(udp) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "net", "udp6"), []byte("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(udp6) error = %v", err)
+	}
 	if err := os.Symlink("socket:[12345]", filepath.Join(root, "123", "fd", "5")); err != nil {
-		t.Fatalf("Symlink() error = %v", err)
+		t.Fatalf("Symlink(tcp) error = %v", err)
+	}
+	if err := os.Symlink("socket:[54321]", filepath.Join(root, "123", "fd", "6")); err != nil {
+		t.Fatalf("Symlink(udp) error = %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "123", "comm"), []byte("nginx\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(comm) error = %v", err)
@@ -63,11 +78,14 @@ func TestProcPortSnapshotterSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if len(snapshot) != 1 {
-		t.Fatalf("len(snapshot) = %d, want 1", len(snapshot))
+	if len(snapshot) != 2 {
+		t.Fatalf("len(snapshot) = %d, want 2", len(snapshot))
 	}
-	if got := snapshot[0]; got.Addr != "127.0.0.1" || got.Port != 8080 || got.PID != 123 || got.Process != "nginx" {
-		t.Fatalf("snapshot[0] = %#v, want addr=127.0.0.1 port=8080 pid=123 process=nginx", got)
+	if got := snapshot[0]; got.Addr != "0.0.0.0" || got.Port != 5353 || got.PID != 123 || got.Process != "nginx" || got.Proto != "udp" {
+		t.Fatalf("snapshot[0] = %#v, want addr=0.0.0.0 proto=udp port=5353 pid=123 process=nginx", got)
+	}
+	if got := snapshot[1]; got.Addr != "127.0.0.1" || got.Port != 8080 || got.PID != 123 || got.Process != "nginx" || got.Proto != "tcp" {
+		t.Fatalf("snapshot[1] = %#v, want addr=127.0.0.1 proto=tcp port=8080 pid=123 process=nginx", got)
 	}
 }
 
@@ -152,6 +170,41 @@ func TestMetricsPortsStream(t *testing.T) {
 	}
 	if !strings.Contains(body, "event: "+tailkit.EventPortBound) || !strings.Contains(body, "\"port\":{\"addr\":\"127.0.0.1\",\"port\":3000") {
 		t.Fatalf("bound event missing from body: %q", body)
+	}
+}
+
+func TestMetricsPortsStreamIgnoresPIDOnlyChanges(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	handler := NewHandler(config.MetricsConfig{
+		Enabled: true,
+		Ports: config.PortMetricsConfig{
+			Enabled: true,
+		},
+	}, zap.NewNop())
+	handler.streamInterval = 5 * time.Millisecond
+	handler.heartbeatInterval = 50 * time.Millisecond
+	handler.portSnapshotter = &staticPortSnapshotter{
+		snapshots: [][]types.Port{
+			{{Addr: "", Port: 9323, Proto: "tcp", PID: 158693, Process: "docker-proxy"}},
+			{{Addr: "", Port: 9323, Proto: "tcp", PID: 158700, Process: "docker-proxy"}},
+			{{Addr: "", Port: 9323, Proto: "tcp", PID: 158700, Process: "docker-proxy"}},
+			{{Addr: "", Port: 9323, Proto: "tcp", PID: 158700, Process: "docker-proxy"}},
+		},
+	}
+	time.AfterFunc(20*time.Millisecond, cancel)
+
+	req := httptest.NewRequest(http.MethodGet, "/integrations/metrics/ports/stream", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.handlePortsStream(rec, req)
+
+	body := rec.Body.String()
+	if strings.Contains(body, "event: "+tailkit.EventPortBound) {
+		t.Fatalf("unexpected bound event for PID-only change: %q", body)
+	}
+	if strings.Contains(body, "event: "+tailkit.EventPortReleased) {
+		t.Fatalf("unexpected released event for PID-only change: %q", body)
 	}
 }
 

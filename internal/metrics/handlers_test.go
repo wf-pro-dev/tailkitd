@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wf-pro-dev/tailkit"
 	"go.uber.org/zap"
 
 	"github.com/wf-pro-dev/tailkit/types"
@@ -82,7 +83,7 @@ func TestMetricsEndpointsBasicUsage(t *testing.T) {
 			t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 
-		var got types.AllMetrics
+		var got types.Metrics
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatalf("unmarshal response: %v", err)
 		}
@@ -107,22 +108,22 @@ func TestMetricsStreamEndpoints(t *testing.T) {
 		{
 			name:  "cpu stream",
 			path:  "/integrations/metrics/cpu/stream",
-			event: "metrics.cpu",
+			event: tailkit.EventCPU,
 			configure: func(h *Handler) {
 				h.cfg.CPU.Enabled = true
-				h.cpuSampler = func(context.Context) (types.CPUResult, error) {
-					return types.CPUResult{Percent: []float64{12.5}, Total: 12.5}, nil
+				h.cpuSampler = func(context.Context) (types.CPU, error) {
+					return types.CPU{Percent: []float64{12.5}, Total: 12.5}, nil
 				}
 			},
 		},
 		{
 			name:  "all stream",
 			path:  "/integrations/metrics/all/stream",
-			event: "metrics.all",
+			event: tailkit.EventAll,
 			configure: func(h *Handler) {
-				h.allSampler = func(context.Context) (types.AllMetrics, error) {
-					return types.AllMetrics{
-						Processes: []types.ProcessStat{{PID: 100, Name: "tailkitd"}},
+				h.allSampler = func(context.Context) (types.Metrics, error) {
+					return types.Metrics{
+						Processes: []types.Process{{PID: 100, Name: "tailkitd"}},
 					}, nil
 				}
 			},

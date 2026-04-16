@@ -16,26 +16,8 @@ import (
 	"github.com/wf-pro-dev/tailkit/types"
 )
 
-type ListenPort struct {
-	Addr    string `json:"addr"`
-	Port    uint16 `json:"port"`
-	Proto   string `json:"proto"`
-	PID     int    `json:"pid"`
-	Process string `json:"process"`
-}
-
-type PortEvent struct {
-	Kind string     `json:"kind"`
-	Port ListenPort `json:"port"`
-}
-
-type PortsSnapshotEvent struct {
-	Kind  string       `json:"kind"`
-	Ports []ListenPort `json:"ports"`
-}
-
 type portSnapshotter interface {
-	Snapshot(context.Context) ([]types.ListenPort, error)
+	Snapshot(context.Context) ([]types.Port, error)
 }
 
 type procPortSnapshotter struct {
@@ -46,14 +28,14 @@ func newProcPortSnapshotter(procRoot string) *procPortSnapshotter {
 	return &procPortSnapshotter{procRoot: procRoot}
 }
 
-func (p *procPortSnapshotter) Snapshot(_ context.Context) ([]types.ListenPort, error) {
+func (p *procPortSnapshotter) Snapshot(_ context.Context) ([]types.Port, error) {
 	sockets, err := p.readSockets()
 	if err != nil {
 		return nil, err
 	}
-	ports := make(map[string]types.ListenPort, len(sockets))
+	ports := make(map[string]types.Port, len(sockets))
 	for _, socket := range sockets {
-		ports[socket.inode] = types.ListenPort{
+		ports[socket.inode] = types.Port{
 			Addr:    socket.addr,
 			Port:    socket.port,
 			Proto:   "tcp",
@@ -69,7 +51,7 @@ func (p *procPortSnapshotter) Snapshot(_ context.Context) ([]types.ListenPort, e
 		return nil, err
 	}
 
-	snapshot := make([]types.ListenPort, 0, len(ports))
+	snapshot := make([]types.Port, 0, len(ports))
 	for _, port := range ports {
 		snapshot = append(snapshot, port)
 	}
@@ -189,7 +171,7 @@ func decodeProcIP(value string, ipv6 bool) (string, error) {
 	return net.IP(decoded).String(), nil
 }
 
-func (p *procPortSnapshotter) resolveProcesses(ports map[string]types.ListenPort) error {
+func (p *procPortSnapshotter) resolveProcesses(ports map[string]types.Port) error {
 	entries, err := os.ReadDir(p.procRoot)
 	if err != nil {
 		return err

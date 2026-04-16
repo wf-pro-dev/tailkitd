@@ -12,19 +12,21 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"github.com/wf-pro-dev/tailkitd/internal/sse"
 )
 
 func (h *Handler) streamJournal(w http.ResponseWriter, r *http.Request, unit string, lines int, priority string) {
 	sse.Handler(h.streamHeartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.followJournal(ctx, unit, lines, priority, func(entry JournalEntry) error {
-			return sw.Send("journal.entry", entry)
+		return h.followJournal(ctx, unit, lines, priority, func(entry types.JournalEntry) error {
+			return sw.Send(tailkit.EventJournalEntry, entry)
 		})
 	})(w, r)
 }
 
-func (h *Handler) defaultFollowJournal(ctx context.Context, unit string, lines int, priority string, fn func(JournalEntry) error) error {
+func (h *Handler) defaultFollowJournal(ctx context.Context, unit string, lines int, priority string, fn func(types.JournalEntry) error) error {
 	args := []string{
 		"--output=json",
 		"--no-pager",

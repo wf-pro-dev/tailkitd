@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wf-pro-dev/tailkit"
 	"github.com/wf-pro-dev/tailkit/types"
 	"go.uber.org/zap"
 
@@ -116,58 +117,65 @@ func (h *Handler) jobIDFromRequest(r *http.Request) string {
 
 type jobStreamEvent struct {
 	name string
-	data any
+	data types.JobUpdate
 }
 
 func buildJobEvents(jobID string, result types.JobResult) []jobStreamEvent {
 	events := []jobStreamEvent{
 		{
-			name: "job.status",
-			data: map[string]string{
-				"job_id": jobID,
-				"status": string(types.JobStatusAccepted),
+			name: tailkit.EventJobStatus,
+			data: types.JobUpdate{
+				Event:  tailkit.EventJobStatus,
+				JobID:  jobID,
+				Status: types.JobStatusAccepted,
 			},
 		},
 	}
 	if result.Status != types.JobStatusAccepted {
 		events = append(events, jobStreamEvent{
-			name: "job.status",
-			data: map[string]string{
-				"job_id": jobID,
-				"status": string(result.Status),
+			name: tailkit.EventJobStatus,
+			data: types.JobUpdate{
+				Event:  tailkit.EventJobStatus,
+				JobID:  jobID,
+				Status: result.Status,
 			},
 		})
 	}
 
 	for _, line := range splitLines(result.Stdout) {
 		events = append(events, jobStreamEvent{
-			name: "job.stdout",
-			data: map[string]string{
-				"job_id": jobID,
-				"line":   line,
+			name: tailkit.EventJobStdout,
+			data: types.JobUpdate{
+				Event:  tailkit.EventJobStdout,
+				JobID:  jobID,
+				Line:   line,
+				Stream: "stdout",
 			},
 		})
 	}
 	for _, line := range splitLines(result.Stderr) {
 		events = append(events, jobStreamEvent{
-			name: "job.stderr",
-			data: map[string]string{
-				"job_id": jobID,
-				"line":   line,
+			name: tailkit.EventJobStderr,
+			data: types.JobUpdate{
+				Event:  tailkit.EventJobStderr,
+				JobID:  jobID,
+				Line:   line,
+				Stream: "stderr",
 			},
 		})
 	}
 
 	if isTerminalJobStatus(result.Status) {
-		payload := map[string]any{
-			"job_id":    jobID,
-			"exit_code": result.ExitCode,
-			"error":     result.Error,
+		payload := types.JobUpdate{
+			JobID:    jobID,
+			ExitCode: result.ExitCode,
+			Error:    result.Error,
 		}
-		name := "job.completed"
+		name := tailkit.EventJobCompleted
 		if result.Status != types.JobStatusCompleted {
-			name = "job.failed"
+			name = tailkit.EventJobFailed
 		}
+		payload.Event = name
 		events = append(events, jobStreamEvent{name: name, data: payload})
 	}
 	return events

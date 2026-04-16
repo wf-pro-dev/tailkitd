@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wf-pro-dev/tailkit"
 	"go.uber.org/zap"
 
 	"github.com/wf-pro-dev/tailkit/types"
@@ -18,11 +19,11 @@ import (
 )
 
 type staticPortSnapshotter struct {
-	snapshots [][]types.ListenPort
+	snapshots [][]types.Port
 	call      int
 }
 
-func (s *staticPortSnapshotter) Snapshot(_ context.Context) ([]types.ListenPort, error) {
+func (s *staticPortSnapshotter) Snapshot(_ context.Context) ([]types.Port, error) {
 	if s.call >= len(s.snapshots) {
 		return nil, nil
 	}
@@ -80,7 +81,7 @@ func TestMetricsPortsEndpoints(t *testing.T) {
 		},
 	}, zap.NewNop())
 	handler.portSnapshotter = &staticPortSnapshotter{
-		snapshots: [][]types.ListenPort{{
+		snapshots: [][]types.Port{{
 			{Addr: "0.0.0.0", Port: 80, Proto: "tcp", PID: 1234, Process: "nginx"},
 		}},
 	}
@@ -105,7 +106,7 @@ func TestMetricsPortsEndpoints(t *testing.T) {
 			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 		}
 
-		var ports []types.ListenPort
+		var ports []types.Port
 		if err := json.Unmarshal(rec.Body.Bytes(), &ports); err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
@@ -128,7 +129,7 @@ func TestMetricsPortsStream(t *testing.T) {
 	handler.streamInterval = 5 * time.Millisecond
 	handler.heartbeatInterval = 50 * time.Millisecond
 	handler.portSnapshotter = &staticPortSnapshotter{
-		snapshots: [][]types.ListenPort{
+		snapshots: [][]types.Port{
 			{{Addr: "0.0.0.0", Port: 80, Proto: "tcp", PID: 1234, Process: "nginx"}},
 			{
 				{Addr: "0.0.0.0", Port: 80, Proto: "tcp", PID: 1234, Process: "nginx"},
@@ -143,13 +144,13 @@ func TestMetricsPortsStream(t *testing.T) {
 	handler.handlePortsStream(rec, req)
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "event: ports.snapshot") {
+	if !strings.Contains(body, "event: "+tailkit.EventPortsSnapshot) {
 		t.Fatalf("snapshot event missing from body: %q", body)
 	}
 	if !strings.Contains(body, "\"kind\":\"snapshot\"") {
 		t.Fatalf("snapshot payload missing from body: %q", body)
 	}
-	if !strings.Contains(body, "event: port.bound") || !strings.Contains(body, "\"port\":{\"addr\":\"127.0.0.1\",\"port\":3000") {
+	if !strings.Contains(body, "event: "+tailkit.EventPortBound) || !strings.Contains(body, "\"port\":{\"addr\":\"127.0.0.1\",\"port\":3000") {
 		t.Fatalf("bound event missing from body: %q", body)
 	}
 }
@@ -164,7 +165,7 @@ func TestMetricsAllIncludesPorts(t *testing.T) {
 		},
 	}, zap.NewNop())
 	handler.portSnapshotter = &staticPortSnapshotter{
-		snapshots: [][]types.ListenPort{{
+		snapshots: [][]types.Port{{
 			{Addr: "0.0.0.0", Port: 443, Proto: "tcp", PID: 4321, Process: "caddy"},
 		}},
 	}
@@ -176,7 +177,7 @@ func TestMetricsAllIncludesPorts(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var got types.AllMetrics
+	var got types.Metrics
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}

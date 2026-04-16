@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 	"go.uber.org/zap"
 
 	integrationtypes "github.com/wf-pro-dev/tailkit/types/integrations"
@@ -94,7 +96,7 @@ func TestSystemdUnitJournalFollowStream(t *testing.T) {
 
 	handler := NewHandler(&Client{cfg: cfg, logger: zap.NewNop()}, nil, zap.NewNop())
 	handler.streamHeartbeatInterval = 50 * time.Millisecond
-	handler.followJournal = func(ctx context.Context, unit string, lines int, priority string, fn func(JournalEntry) error) error {
+	handler.followJournal = func(ctx context.Context, unit string, lines int, priority string, fn func(types.JournalEntry) error) error {
 		if unit != "tailkitd.service" {
 			t.Fatalf("unit = %q, want %q", unit, "tailkitd.service")
 		}
@@ -104,7 +106,7 @@ func TestSystemdUnitJournalFollowStream(t *testing.T) {
 		if priority != "info" {
 			t.Fatalf("priority = %q, want %q", priority, "info")
 		}
-		return fn(JournalEntry{
+		return fn(types.JournalEntry{
 			Timestamp: 1742300000000000,
 			Message:   "Started tailkitd node agent.",
 			Unit:      unit,
@@ -118,7 +120,7 @@ func TestSystemdUnitJournalFollowStream(t *testing.T) {
 	handler.handleUnitJournal(rec, req, "tailkitd.service")
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "event: journal.entry") || !strings.Contains(body, "\"message\":\"Started tailkitd node agent.\"") {
+	if !strings.Contains(body, "event: "+tailkit.EventJournalEntry) || !strings.Contains(body, "\"message\":\"Started tailkitd node agent.\"") {
 		t.Fatalf("unexpected body:\n%s", body)
 	}
 }
@@ -139,11 +141,11 @@ func TestSystemdSystemJournalFollowStream(t *testing.T) {
 	handler := NewHandler(&Client{cfg: cfg, logger: zap.NewNop()}, nil, zap.NewNop())
 	handler.streamHeartbeatInterval = 50 * time.Millisecond
 	handler.available = func(context.Context) bool { return true }
-	handler.followJournal = func(ctx context.Context, unit string, lines int, priority string, fn func(JournalEntry) error) error {
+	handler.followJournal = func(ctx context.Context, unit string, lines int, priority string, fn func(types.JournalEntry) error) error {
 		if unit != "" {
 			t.Fatalf("unit = %q, want empty", unit)
 		}
-		return fn(JournalEntry{
+		return fn(types.JournalEntry{
 			Timestamp: 1742300000000001,
 			Message:   "system message",
 			Priority:  "notice",
@@ -156,7 +158,7 @@ func TestSystemdSystemJournalFollowStream(t *testing.T) {
 	handler.handleSystemJournal(rec, req)
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "event: journal.entry") || !strings.Contains(body, "\"message\":\"system message\"") {
+	if !strings.Contains(body, "event: "+tailkit.EventJournalEntry) || !strings.Contains(body, "\"message\":\"system message\"") {
 		t.Fatalf("unexpected body:\n%s", body)
 	}
 }

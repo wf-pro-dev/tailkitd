@@ -12,16 +12,11 @@ import (
 
 	dockertypescontainer "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"github.com/wf-pro-dev/tailkitd/internal/sse"
 )
-
-type LogLine struct {
-	ContainerID string `json:"container_id"`
-	Stream      string `json:"stream"`
-	TS          string `json:"ts,omitempty"`
-	Line        string `json:"line"`
-}
 
 func (h *Handler) handleContainerStats(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodGet {
@@ -35,15 +30,15 @@ func (h *Handler) handleContainerStats(w http.ResponseWriter, r *http.Request, i
 
 	sse.Handler(h.streamHeartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
 		return h.streamContainerStats(ctx, id, func(snapshot dockertypescontainer.StatsResponse) error {
-			return sw.Send("stats.snapshot", snapshot)
+			return sw.Send(tailkit.EventStatsSnapshot, snapshot)
 		})
 	})(w, r)
 }
 
 func (h *Handler) streamContainerLogs(w http.ResponseWriter, r *http.Request, id, tail string, timestamps bool) {
 	sse.Handler(h.streamHeartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.followContainerLogs(ctx, id, tail, timestamps, func(line LogLine) error {
-			return sw.Send("log.line", line)
+		return h.followContainerLogs(ctx, id, tail, timestamps, func(line types.LogLine) error {
+			return sw.Send(tailkit.EventLogLine, line)
 		})
 	})(w, r)
 }
@@ -70,7 +65,7 @@ func (h *Handler) defaultStreamContainerStats(ctx context.Context, id string, fn
 	}
 }
 
-func (h *Handler) defaultFollowContainerLogs(ctx context.Context, id, tail string, timestamps bool, fn func(LogLine) error) error {
+func (h *Handler) defaultFollowContainerLogs(ctx context.Context, id, tail string, timestamps bool, fn func(types.LogLine) error) error {
 	rc, err := h.client.Docker().ContainerLogs(ctx, id, dockertypescontainer.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -112,7 +107,7 @@ type logEmitterWriter struct {
 	containerID string
 	stream      string
 	timestamps  bool
-	emit        func(LogLine) error
+	emit        func(types.LogLine) error
 	buf         strings.Builder
 }
 
@@ -146,7 +141,7 @@ func (w *logEmitterWriter) Flush() error {
 
 func (w *logEmitterWriter) emitLine(line string) error {
 	ts, msg := parseTimestampedLine(line, w.timestamps)
-	return w.emit(LogLine{
+	return w.emit(types.LogLine{
 		ContainerID: w.containerID,
 		Stream:      w.stream,
 		TS:          ts,
@@ -154,26 +149,26 @@ func (w *logEmitterWriter) emitLine(line string) error {
 	})
 }
 
-func parseTimestampedLine(line string, timestamps bool) (string, string) {
+func parseTimestampedLine(line string, timestamps bool) (time.Time, string) {
 	if !timestamps {
-		return "", line
+		return time.Time{}, line
 	}
 	i := strings.IndexByte(line, ' ')
 	if i <= 0 {
-		return "", line
+		return time.Time{}, line
 	}
-	ts := line[:i]
-	if _, err := time.Parse(time.RFC3339Nano, ts); err != nil {
-		return "", line
+	ts, err := time.Parse(time.RFC3339Nano, line[:i])
+	if err != nil {
+		return time.Time{}, line
 	}
 	return ts, strings.TrimPrefix(line[i+1:], " ")
 }
 
-func streamRawLogLines(r io.Reader, containerID, stream string, timestamps bool, fn func(LogLine) error) error {
+func streamRawLogLines(r io.Reader, containerID, stream string, timestamps bool, fn func(types.LogLine) error) error {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		ts, line := parseTimestampedLine(scanner.Text(), timestamps)
-		if err := fn(LogLine{
+		if err := fn(types.LogLine{
 			ContainerID: containerID,
 			Stream:      stream,
 			TS:          ts,

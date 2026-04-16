@@ -31,11 +31,11 @@ type Handler struct {
 	streamInterval    time.Duration
 	heartbeatInterval time.Duration
 	portSnapshotter   portSnapshotter
-	cpuSampler        func(context.Context) (types.CPUResult, error)
-	memorySampler     func(context.Context) (types.MemoryResult, error)
+	cpuSampler        func(context.Context) (types.CPU, error)
+	memorySampler     func(context.Context) (types.Memory, error)
 	networkSampler    func(context.Context) ([]gopsutilnet.IOCountersStat, error)
-	processSampler    func(context.Context) ([]types.ProcessStat, error)
-	allSampler        func(context.Context) (types.AllMetrics, error)
+	processSampler    func(context.Context) ([]types.Process, error)
+	allSampler        func(context.Context) (types.Metrics, error)
 }
 
 // NewHandler constructs a metrics Handler.
@@ -137,13 +137,6 @@ func (h *Handler) handleHost(w http.ResponseWriter, r *http.Request) {
 
 // ─── GET /integrations/metrics/cpu ───────────────────────────────────────────
 
-// CPUResult bundles per-CPU usage percentages with static CPU info.
-type CPUResult struct {
-	Info    []gopsutilcpu.InfoStat `json:"info"`
-	Percent []float64              `json:"percent_per_cpu"`
-	Total   float64                `json:"percent_total"`
-}
-
 func (h *Handler) handleCPU(w http.ResponseWriter, r *http.Request) {
 	if !h.guard(w) || !methodGet(w, r) {
 		return
@@ -164,12 +157,6 @@ func (h *Handler) handleCPU(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─── GET /integrations/metrics/memory ────────────────────────────────────────
-
-// MemoryResult bundles virtual and swap memory stats.
-type MemoryResult struct {
-	Virtual *gopsutilmem.VirtualMemoryStat `json:"virtual"`
-	Swap    *gopsutilmem.SwapMemoryStat    `json:"swap"`
-}
 
 func (h *Handler) handleMemory(w http.ResponseWriter, r *http.Request) {
 	if !h.guard(w) || !methodGet(w, r) {
@@ -254,18 +241,6 @@ func (h *Handler) handleNetwork(w http.ResponseWriter, r *http.Request) {
 
 // ─── GET /integrations/metrics/processes ─────────────────────────────────────
 
-// ProcessStat is the per-process summary returned in the processes response.
-// We define our own struct to control exactly which fields are exposed and
-// to avoid serialising the full gopsutil Process object with its internal state.
-type ProcessStat struct {
-	PID        int32   `json:"pid"`
-	Name       string  `json:"name"`
-	Status     string  `json:"status"`
-	CPUPercent float64 `json:"cpu_percent"`
-	MemoryRSS  uint64  `json:"memory_rss_bytes"`
-	Cmdline    string  `json:"cmdline"`
-}
-
 func (h *Handler) handleProcesses(w http.ResponseWriter, r *http.Request) {
 	if !h.guard(w) || !methodGet(w, r) {
 		return
@@ -288,8 +263,8 @@ func (h *Handler) handleProcesses(w http.ResponseWriter, r *http.Request) {
 
 // collectProcessStats gathers stats for each process, skipping those that
 // error (e.g. permission denied on /proc/<pid>/status for kernel threads).
-func collectProcessStats(ctx context.Context, procs []*gopsutilproc.Process) []types.ProcessStat {
-	stats := make([]types.ProcessStat, 0, len(procs))
+func collectProcessStats(ctx context.Context, procs []*gopsutilproc.Process) []types.Process {
+	stats := make([]types.Process, 0, len(procs))
 	for _, p := range procs {
 		name, err := p.NameWithContext(ctx)
 		if err != nil {
@@ -310,7 +285,7 @@ func collectProcessStats(ctx context.Context, procs []*gopsutilproc.Process) []t
 
 		cmdline, _ := p.CmdlineWithContext(ctx)
 
-		stats = append(stats, types.ProcessStat{
+		stats = append(stats, types.Process{
 			PID:        p.Pid,
 			Name:       name,
 			Status:     status,
@@ -332,14 +307,14 @@ func (h *Handler) handleAll(w http.ResponseWriter, r *http.Request) {
 	helpers.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *Handler) sampleCPU(ctx context.Context) (types.CPUResult, error) {
+func (h *Handler) sampleCPU(ctx context.Context) (types.CPU, error) {
 	if h.cpuSampler != nil {
 		return h.cpuSampler(ctx)
 	}
 
 	percents, err := gopsutilcpu.PercentWithContext(ctx, 0, true)
 	if err != nil {
-		return types.CPUResult{}, err
+		return types.CPU{}, err
 	}
 
 	info, err := gopsutilcpu.InfoWithContext(ctx)
@@ -355,24 +330,24 @@ func (h *Handler) sampleCPU(ctx context.Context) (types.CPUResult, error) {
 	if len(percents) > 0 {
 		total /= float64(len(percents))
 	}
-	return types.CPUResult{Info: info, Percent: percents, Total: total}, nil
+	return types.CPU{Info: info, Percent: percents, Total: total}, nil
 }
 
-func (h *Handler) sampleMemory(ctx context.Context) (types.MemoryResult, error) {
+func (h *Handler) sampleMemory(ctx context.Context) (types.Memory, error) {
 	if h.memorySampler != nil {
 		return h.memorySampler(ctx)
 	}
 
 	vmem, err := gopsutilmem.VirtualMemoryWithContext(ctx)
 	if err != nil {
-		return types.MemoryResult{}, err
+		return types.Memory{}, err
 	}
 	swap, err := gopsutilmem.SwapMemoryWithContext(ctx)
 	if err != nil {
 		h.logger.Warn("metrics: swap memory unavailable", zap.Error(err))
 		swap = nil
 	}
-	return types.MemoryResult{Virtual: vmem, Swap: swap}, nil
+	return types.Memory{Virtual: vmem, Swap: swap}, nil
 }
 
 func (h *Handler) sampleNetwork(ctx context.Context) ([]gopsutilnet.IOCountersStat, error) {
@@ -402,7 +377,7 @@ func (h *Handler) sampleNetwork(ctx context.Context) ([]gopsutilnet.IOCountersSt
 	return filtered, nil
 }
 
-func (h *Handler) sampleProcesses(ctx context.Context) ([]types.ProcessStat, error) {
+func (h *Handler) sampleProcesses(ctx context.Context) ([]types.Process, error) {
 	if h.processSampler != nil {
 		return h.processSampler(ctx)
 	}
@@ -422,19 +397,19 @@ func (h *Handler) sampleProcesses(ctx context.Context) ([]types.ProcessStat, err
 	return stats, nil
 }
 
-func (h *Handler) samplePorts(ctx context.Context) ([]types.ListenPort, error) {
+func (h *Handler) samplePorts(ctx context.Context) ([]types.Port, error) {
 	if h.portSnapshotter == nil {
 		return nil, nil
 	}
 	return h.portSnapshotter.Snapshot(ctx)
 }
 
-func (h *Handler) sampleAll(ctx context.Context) (types.AllMetrics, error) {
+func (h *Handler) sampleAll(ctx context.Context) (types.Metrics, error) {
 	if h.allSampler != nil {
 		return h.allSampler(ctx)
 	}
 
-	result := types.AllMetrics{}
+	result := types.Metrics{}
 	if h.cfg.Host.Enabled {
 		if info, err := gopsutilhost.InfoWithContext(ctx); err == nil {
 			result.Host = info

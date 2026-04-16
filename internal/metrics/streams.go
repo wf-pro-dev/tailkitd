@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	gopsutilnet "github.com/shirou/gopsutil/v4/net"
 	"go.uber.org/zap"
 
 	"github.com/wf-pro-dev/tailkit"
@@ -24,7 +25,7 @@ func (h *Handler) handleCPUStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, tailkit.EventCPU, func(ctx context.Context) (any, error) {
+		return streamSnapshot(ctx, sw, h.streamInterval, tailkit.EventCPU, func(ctx context.Context) (types.CPU, error) {
 			return h.sampleCPU(ctx)
 		})
 	})(w, r)
@@ -39,7 +40,7 @@ func (h *Handler) handleMemoryStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, tailkit.EventMemory, func(ctx context.Context) (any, error) {
+		return streamSnapshot(ctx, sw, h.streamInterval, tailkit.EventMemory, func(ctx context.Context) (types.Memory, error) {
 			return h.sampleMemory(ctx)
 		})
 	})(w, r)
@@ -54,7 +55,7 @@ func (h *Handler) handleNetworkStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, tailkit.EventNetwork, func(ctx context.Context) (any, error) {
+		return streamSnapshot(ctx, sw, h.streamInterval, tailkit.EventNetwork, func(ctx context.Context) ([]gopsutilnet.IOCountersStat, error) {
 			return h.sampleNetwork(ctx)
 		})
 	})(w, r)
@@ -69,7 +70,7 @@ func (h *Handler) handleProcessesStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, tailkit.EventProcesses, func(ctx context.Context) (any, error) {
+		return streamSnapshot(ctx, sw, h.streamInterval, tailkit.EventProcesses, func(ctx context.Context) ([]types.Process, error) {
 			return h.sampleProcesses(ctx)
 		})
 	})(w, r)
@@ -80,26 +81,26 @@ func (h *Handler) handleAllStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.Handler(h.heartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
-		return h.streamSnapshot(ctx, sw, tailkit.EventAll, func(ctx context.Context) (any, error) {
+		return streamSnapshot(ctx, sw, h.streamInterval, tailkit.EventAll, func(ctx context.Context) (types.Metrics, error) {
 			return h.sampleAll(ctx)
 		})
 	})(w, r)
 }
 
-func (h *Handler) streamSnapshot(ctx context.Context, sw *sse.Writer, eventName string, sample func(context.Context) (any, error)) error {
+func streamSnapshot[T any](ctx context.Context, sw *sse.Writer, interval time.Duration, eventName string, sample func(context.Context) (T, error)) error {
 	send := func() error {
 		data, err := sample(ctx)
 		if err != nil {
 			return err
 		}
-		return sw.Send(eventName, data)
+		return sse.Write(sw, sse.Event[T]{Name: eventName, Data: data})
 	}
 
 	if err := send(); err != nil {
 		return err
 	}
 
-	ticker := time.NewTicker(h.streamInterval)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -158,9 +159,12 @@ func (h *Handler) handlePortsStream(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if err := sw.Send(tailkit.EventPortsSnapshot, types.PortEvent{
-			Kind:  "snapshot",
-			Ports: current,
+		if err := sse.Write(sw, sse.Event[types.PortUpdate]{
+			Name: tailkit.EventPortsSnapshot,
+			Data: types.PortUpdate{
+				Kind:  "snapshot",
+				Ports: current,
+			},
 		}); err != nil {
 			return err
 		}
@@ -178,12 +182,18 @@ func (h *Handler) handlePortsStream(w http.ResponseWriter, r *http.Request) {
 					return err
 				}
 				for _, port := range diffPorts(previous, current) {
-					if err := sw.Send("port.bound", types.PortEvent{Kind: "bound", Port: port}); err != nil {
+					if err := sse.Write(sw, sse.Event[types.PortUpdate]{
+						Name: tailkit.EventPortBound,
+						Data: types.PortUpdate{Kind: "bound", Port: port},
+					}); err != nil {
 						return err
 					}
 				}
 				for _, port := range diffPorts(current, previous) {
-					if err := sw.Send("port.released", types.PortEvent{Kind: "released", Port: port}); err != nil {
+					if err := sse.Write(sw, sse.Event[types.PortUpdate]{
+						Name: tailkit.EventPortReleased,
+						Data: types.PortUpdate{Kind: "released", Port: port},
+					}); err != nil {
 						return err
 					}
 				}
@@ -193,13 +203,13 @@ func (h *Handler) handlePortsStream(w http.ResponseWriter, r *http.Request) {
 	})(w, r)
 }
 
-func diffPorts(before, after []types.ListenPort) []types.ListenPort {
+func diffPorts(before, after []types.Port) []types.Port {
 	known := make(map[string]struct{}, len(before))
 	for _, port := range before {
 		known[portIdentity(port)] = struct{}{}
 	}
 
-	var diff []types.ListenPort
+	var diff []types.Port
 	for _, port := range after {
 		if _, ok := known[portIdentity(port)]; ok {
 			continue
@@ -221,6 +231,6 @@ func diffPorts(before, after []types.ListenPort) []types.ListenPort {
 	return diff
 }
 
-func portIdentity(port types.ListenPort) string {
+func portIdentity(port types.Port) string {
 	return fmt.Sprintf("%s|%d|%s|%d", port.Addr, port.Port, port.Proto, port.PID)
 }

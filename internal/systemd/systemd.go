@@ -28,7 +28,7 @@ type Handler struct {
 	logger                  *zap.Logger
 	streamHeartbeatInterval time.Duration
 	available               func(context.Context) bool
-	followJournal           func(ctx context.Context, unit string, lines int, priority string, fn func(JournalEntry) error) error
+	followJournal           func(ctx context.Context, unit string, lines int, priority string, fn func(types.JournalEntry) error) error
 }
 
 // NewHandler constructs a systemd Handler.
@@ -440,15 +440,6 @@ func (h *Handler) handleUnitEnable(w http.ResponseWriter, r *http.Request, unit 
 
 // ─── Journal ──────────────────────────────────────────────────────────────────
 
-// JournalEntry is the shape returned in journal responses.
-type JournalEntry struct {
-	Timestamp uint64            `json:"timestamp_us"` // realtime timestamp in microseconds
-	Message   string            `json:"message"`
-	Unit      string            `json:"unit,omitempty"`
-	Priority  string            `json:"priority,omitempty"`
-	Fields    map[string]string `json:"fields,omitempty"`
-}
-
 // journalctlJSON is the raw shape of a single journalctl --output=json line.
 // journalctl emits one JSON object per line (not a JSON array).
 // All fields are strings or arrays of strings — we only care about the
@@ -515,7 +506,7 @@ func (h *Handler) handleSystemJournal(w http.ResponseWriter, r *http.Request) {
 //   - unit == "" → system-wide (no --unit flag)
 //   - lines      → --lines cap
 //   - priorityFloor → --priority floor (journalctl handles the severity filter natively)
-func (h *Handler) readJournal(ctx context.Context, unit string, lines int, priorityFloor string) ([]JournalEntry, error) {
+func (h *Handler) readJournal(ctx context.Context, unit string, lines int, priorityFloor string) ([]types.JournalEntry, error) {
 	args := []string{
 		"--output=json", // one JSON object per line
 		"--no-pager",    // never pause waiting for a pager
@@ -538,7 +529,7 @@ func (h *Handler) readJournal(ctx context.Context, unit string, lines int, prior
 	if err != nil {
 		// Exit code 1 from journalctl means no entries matched — not an error.
 		if isNoEntriesExit(err) {
-			return []JournalEntry{}, nil
+			return []types.JournalEntry{}, nil
 		}
 		return nil, fmt.Errorf("journalctl: %w: %s", err, stderr.String())
 	}
@@ -550,8 +541,8 @@ func (h *Handler) readJournal(ctx context.Context, unit string, lines int, prior
 // journalctl emits one JSON object per line (newline-delimited JSON, not an array).
 // Malformed lines are silently skipped — a single corrupted entry should not
 // fail the entire response.
-func parseJournalOutput(data []byte) []JournalEntry {
-	var entries []JournalEntry
+func parseJournalOutput(data []byte) []types.JournalEntry {
+	var entries []types.JournalEntry
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 
 	for scanner.Scan() {
@@ -582,7 +573,7 @@ func parseJournalOutput(data []byte) []JournalEntry {
 			}
 		}
 
-		entries = append(entries, JournalEntry{
+		entries = append(entries, types.JournalEntry{
 			Timestamp: ts,
 			Message:   raw.Message,
 			Unit:      raw.SystemdUnit,

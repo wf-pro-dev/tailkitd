@@ -24,7 +24,7 @@ type Handler struct {
 	logger                  *zap.Logger
 	client                  *Client
 	streamHeartbeatInterval time.Duration
-	followContainerLogs     func(ctx context.Context, id, tail string, timestamps bool, fn func(LogLine) error) error
+	followContainerLogs     func(ctx context.Context, id, tail string, timestamps bool, fn func(types.LogLine) error) error
 	streamContainerStats    func(ctx context.Context, id string, fn func(dockertypescontainer.StatsResponse) error) error
 }
 

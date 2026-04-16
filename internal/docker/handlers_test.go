@@ -12,6 +12,8 @@ import (
 
 	dockertypescontainer "github.com/docker/docker/api/types/container"
 	dockerclient "github.com/docker/docker/client"
+	"github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkit/types"
 	"go.uber.org/zap"
 
 	"github.com/wf-pro-dev/tailkitd/internal/config"
@@ -120,7 +122,7 @@ func TestDockerContainerLogsFollowStream(t *testing.T) {
 		},
 	}, &Client{logger: zap.NewNop()}, nil, zap.NewNop())
 	handler.streamHeartbeatInterval = 50 * time.Millisecond
-	handler.followContainerLogs = func(ctx context.Context, id, tail string, timestamps bool, fn func(LogLine) error) error {
+	handler.followContainerLogs = func(ctx context.Context, id, tail string, timestamps bool, fn func(types.LogLine) error) error {
 		if id != "abc123" {
 			t.Fatalf("id = %q, want %q", id, "abc123")
 		}
@@ -130,9 +132,9 @@ func TestDockerContainerLogsFollowStream(t *testing.T) {
 		if !timestamps {
 			t.Fatal("timestamps = false, want true")
 		}
-		for _, line := range []LogLine{
-			{ContainerID: id, Stream: "stdout", TS: "2026-04-14T10:00:00Z", Line: "server listening on :3000"},
-			{ContainerID: id, Stream: "stderr", TS: "2026-04-14T10:00:01Z", Line: "warning"},
+		for _, line := range []types.LogLine{
+			{ContainerID: id, Stream: "stdout", TS: time.Date(2026, 4, 14, 10, 0, 0, 0, time.UTC), Line: "server listening on :3000"},
+			{ContainerID: id, Stream: "stderr", TS: time.Date(2026, 4, 14, 10, 0, 1, 0, time.UTC), Line: "warning"},
 		} {
 			if err := fn(line); err != nil {
 				return err
@@ -148,11 +150,13 @@ func TestDockerContainerLogsFollowStream(t *testing.T) {
 
 	body := rec.Body.String()
 	for _, want := range []string{
-		"event: log.line",
+		"event: " + tailkit.EventLogLine,
 		"\"container_id\":\"abc123\"",
 		"\"stream\":\"stdout\"",
+		"\"ts\":\"2026-04-14T10:00:00Z\"",
 		"\"line\":\"server listening on :3000\"",
 		"\"stream\":\"stderr\"",
+		"\"ts\":\"2026-04-14T10:00:01Z\"",
 		"\"line\":\"warning\"",
 	} {
 		if !strings.Contains(body, want) {
@@ -187,7 +191,7 @@ func TestDockerContainerStatsStream(t *testing.T) {
 	handler.handleContainerStats(rec, req, "abc123")
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "event: stats.snapshot") || !strings.Contains(body, "\"name\":\"/abc123\"") {
+	if !strings.Contains(body, "event: "+tailkit.EventStatsSnapshot) || !strings.Contains(body, "\"name\":\"/abc123\"") {
 		t.Fatalf("unexpected body:\n%s", body)
 	}
 }

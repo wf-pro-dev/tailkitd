@@ -55,11 +55,31 @@ The stream is SSE and emits:
 - `job.completed`
 - `job.failed`
 
+All exec stream events use the same `types.JobUpdate` payload family in `data:`:
+
+```json
+{"job_id":"01J2K...","line":"output line","stream":"stdout"}
+```
+
+Polling and streaming intentionally use different models:
+- `GET /exec/jobs/{job_id}` returns `types.JobResult`
+- `GET /exec/jobs/{job_id}?stream=true` emits `types.JobUpdate`
+
 `Last-Event-ID` is supported for replaying missed job events on reconnect.
 
 ### Streaming
 
 Streaming endpoints use Server-Sent Events (SSE) over HTTP.
+
+The transport envelope is conceptually `tailkit.Event[T]` / `types.Event[T]`:
+
+```go
+type Event[T any] struct {
+    Name string
+    ID   int64
+    Data T
+}
+```
 
 Common response headers:
 - `Content-Type: text/event-stream`
@@ -72,6 +92,12 @@ event: <event-name>
 id: <monotonic integer>
 data: <json payload>
 ```
+
+Contract rules:
+- `data:` always matches the stream's documented shared payload family
+- one stream endpoint uses one payload family, even when it emits multiple event names
+- snapshot endpoints may differ from streaming payloads only when explicitly documented
+- `Last-Event-ID` resumes by SSE `id`, not by payload contents
 
 Heartbeat comments are sent periodically:
 
@@ -288,13 +314,17 @@ POST /integrations/docker/containers/{id}/restart        Restart → async job
 
 Response types are Docker SDK types: `container.Summary`, `container.InspectResponse`.
 
-`GET /integrations/docker/containers/{id}/logs?follow=true` emits `log.line` events with payload:
+`GET /integrations/docker/containers/{id}/logs?follow=true` emits `log.line` events with shared `types.LogLine` payloads:
 
 ```json
 {"container_id":"abc123","stream":"stdout","ts":"2026-04-14T10:00:00Z","line":"server listening on :3000"}
 ```
 
-`GET /integrations/docker/containers/{id}/stats` emits `stats.snapshot` events carrying Docker SDK `container.StatsResponse` values.
+The non-stream log snapshot endpoint is intentionally different:
+- `GET /integrations/docker/containers/{id}/logs?tail=100` returns the documented snapshot wrapper
+- `GET /integrations/docker/containers/{id}/logs?follow=true` emits `types.LogLine`
+
+`GET /integrations/docker/containers/{id}/stats` emits `stats.snapshot` events carrying Docker SDK `container.StatsResponse` values in `data:`.
 
 ### Images
 
@@ -377,7 +407,7 @@ Journal responses are arrays of `JournalEntry`:
 
 `?lines=` caps the number of entries returned. Defaults to the value set in `systemd.toml`.
 
-The streaming journal variants emit `journal.entry` events carrying the existing `JournalEntry` JSON shape.
+The streaming journal variants emit `journal.entry` events carrying the same shared `types.JournalEntry` shape in `data:`.
 
 ---
 
@@ -415,9 +445,17 @@ GET /integrations/metrics/ports/stream SSE stream of port changes
 
 `/integrations/metrics/all` returns only sections that are enabled in `metrics.toml`. Disabled sections are omitted from the response (`omitempty`).
 
-When `[ports]` is enabled in `metrics.toml`, `/integrations/metrics/all` also includes a `ports` field containing the current `[]ListenPort` snapshot.
+When `[ports]` is enabled in `metrics.toml`, `/integrations/metrics/all` also includes a `ports` field containing the current `[]types.Port` snapshot.
 
 Response types are [gopsutil v4](https://github.com/shirou/gopsutil) types: `host.InfoStat`, `cpu.InfoStat`, `mem.VirtualMemoryStat`, `disk.UsageStat`, `net.IOCountersStat`.
+
+Shared stream payload families:
+- CPU snapshot and stream use `types.CPU`
+- memory snapshot and stream use `types.Memory`
+- network snapshot and stream use `[]net.IOCountersStat`
+- processes snapshot and stream use `[]types.Process`
+- all snapshot and stream use `types.Metrics`
+- ports snapshot endpoint uses `[]types.Port`, while the ports stream uses `types.PortUpdate`
 
 ### Ports
 
@@ -430,7 +468,19 @@ Response types are [gopsutil v4](https://github.com/shirou/gopsutil) types: `hos
 ]
 ```
 
-`GET /integrations/metrics/ports/stream` emits:
+`GET /integrations/metrics/ports/stream` emits `types.PortUpdate` payloads and may send multiple event names from that one payload family:
 - `ports.snapshot` once on connect
 - `port.bound` when a listener appears
 - `port.released` when a listener disappears
+
+Snapshot payload example:
+
+```json
+{"kind":"snapshot","ports":[{"addr":"0.0.0.0","port":80,"proto":"tcp","pid":1234,"process":"nginx"}]}
+```
+
+Delta payload example:
+
+```json
+{"kind":"bound","port":{"addr":"127.0.0.1","port":3000,"proto":"tcp","pid":5678,"process":"node"}}
+```

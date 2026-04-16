@@ -8,16 +8,14 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+
+	"github.com/wf-pro-dev/tailkit"
 )
 
 var ErrClientGone = errors.New("sse: client disconnected")
 
-// Event is the shared SSE event envelope.
-type Event struct {
-	Name string
-	ID   int64
-	Data any
-}
+// Event is the shared typed SSE event envelope.
+type Event[T any] = tailkit.Event[T]
 
 // Writer emits server-sent events on a single HTTP response stream.
 type Writer struct {
@@ -48,7 +46,16 @@ func NewWriter(w http.ResponseWriter, r *http.Request) (*Writer, error) {
 	}, nil
 }
 
+// Write emits a typed SSE event and assigns its sequence ID centrally.
+func Write[T any](sw *Writer, event Event[T]) error {
+	return sw.write(event.Name, event.Data)
+}
+
 func (sw *Writer) Send(name string, data any) error {
+	return Write(sw, Event[any]{Name: name, Data: data})
+}
+
+func (sw *Writer) write(name string, data any) error {
 	select {
 	case <-sw.done:
 		return ErrClientGone
@@ -101,7 +108,7 @@ func (sw *Writer) Heartbeat() error {
 }
 
 func (sw *Writer) Error(msg string) {
-	_ = sw.Send("error", map[string]string{"error": msg})
+	_ = sw.Send(tailkit.EventError, map[string]string{"error": msg})
 }
 
 func (sw *Writer) SetSequence(seq int64) {

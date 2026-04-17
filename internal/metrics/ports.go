@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/wf-pro-dev/tailkit/types"
+	"tailscale.com/portlist"
 )
 
 type portSnapshotter interface {
@@ -22,10 +23,17 @@ type portSnapshotter interface {
 
 type procPortSnapshotter struct {
 	procRoot string
+	poller   portlistPoller
+	cached   []portlist.Port
 }
 
 func newProcPortSnapshotter(procRoot string) *procPortSnapshotter {
-	return &procPortSnapshotter{procRoot: procRoot}
+	return &procPortSnapshotter{
+		procRoot: procRoot,
+		poller: &portlist.Poller{
+			IncludeLocalhost: true,
+		},
+	}
 }
 
 func (p *procPortSnapshotter) Snapshot(_ context.Context) ([]types.Port, error) {
@@ -34,26 +42,16 @@ func (p *procPortSnapshotter) Snapshot(_ context.Context) ([]types.Port, error) 
 		return nil, err
 	}
 
-	ports := make(map[string]types.Port, len(sockets))
-	for _, socket := range sockets {
-		ports[socket.inode] = types.Port{
-			Addr:  socket.addr,
-			Port:  socket.port,
-			Proto: socket.proto,
-		}
+	ports, err := p.poll()
+	if err != nil {
+		return nil, err
 	}
 	if len(ports) == 0 {
 		return nil, nil
 	}
 
-	if err := p.resolveProcesses(ports); err != nil {
-		return nil, err
-	}
+	snapshot := p.buildSnapshot(ports, sockets)
 
-	snapshot := make([]types.Port, 0, len(ports))
-	for _, port := range ports {
-		snapshot = append(snapshot, port)
-	}
 	sort.Slice(snapshot, func(i, j int) bool {
 		if snapshot[i].Port != snapshot[j].Port {
 			return snapshot[i].Port < snapshot[j].Port
@@ -70,6 +68,10 @@ func (p *procPortSnapshotter) Snapshot(_ context.Context) ([]types.Port, error) 
 		return snapshot[i].Process < snapshot[j].Process
 	})
 	return snapshot, nil
+}
+
+type portlistPoller interface {
+	Poll() ([]portlist.Port, bool, error)
 }
 
 type socketRow struct {
@@ -197,72 +199,75 @@ func decodeProcIP(value string, ipv6 bool) (string, error) {
 	return net.IP(decoded).String(), nil
 }
 
-func (p *procPortSnapshotter) resolveProcesses(ports map[string]types.Port) error {
-	entries, err := os.ReadDir(p.procRoot)
+func (p *procPortSnapshotter) poll() ([]portlist.Port, error) {
+	if p.poller == nil {
+		return nil, nil
+	}
+	ports, changed, err := p.poller.Poll()
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil {
-			continue
-		}
-
-		fdDir := filepath.Join(p.procRoot, entry.Name(), "fd")
-		fds, err := os.ReadDir(fdDir)
-		if err != nil {
-			continue
-		}
-		for _, fd := range fds {
-			target, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
-			if err != nil || !strings.HasPrefix(target, "socket:[") || !strings.HasSuffix(target, "]") {
-				continue
-			}
-			inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
-			port, ok := ports[inode]
-			if !ok || port.PID != 0 {
-				continue
-			}
-			port.PID = pid
-			port.Process = readProcessName(filepath.Join(p.procRoot, entry.Name()))
-			ports[inode] = port
-		}
+	if changed {
+		p.cached = append(p.cached[:0], ports...)
 	}
-	return nil
+	return p.cached, nil
 }
 
-func readProcessName(procDir string) string {
-	if data, err := os.ReadFile(filepath.Join(procDir, "cmdline")); err == nil {
-		argv := strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
-		name := argvSubject(argv...)
-		if name != "" {
-			return name
-		}
+func (p *procPortSnapshotter) buildSnapshot(ports []portlist.Port, sockets []socketRow) []types.Port {
+	type key struct {
+		proto string
+		port  uint16
 	}
 
-	if data, err := os.ReadFile(filepath.Join(procDir, "comm")); err == nil {
-		name := strings.TrimSpace(string(data))
-		if name != "" {
-			return name
-		}
+	addresses := make(map[key][]socketRow, len(sockets))
+	for _, socket := range sockets {
+		k := key{proto: socket.proto, port: socket.port}
+		addresses[k] = append(addresses[k], socket)
 	}
 
-	return ""
+	snapshot := make([]types.Port, 0, len(ports))
+	for _, port := range ports {
+		k := key{proto: port.Proto, port: port.Port}
+		snapshot = append(snapshot, types.Port{
+			Addr:    selectSocketAddr(addresses[k]),
+			Port:    port.Port,
+			Proto:   port.Proto,
+			PID:     port.Pid,
+			Process: port.Process,
+		})
+	}
+	return snapshot
 }
 
-func argvSubject(argv ...string) string {
-	if len(argv) == 0 {
+func selectSocketAddr(sockets []socketRow) string {
+	if len(sockets) == 0 {
 		return ""
 	}
-	name := filepath.Base(argv[0])
-	if name == "mono" && len(argv) >= 2 {
-		name = filepath.Base(argv[1])
+	best := sockets[0]
+	bestScore := socketAddrScore(best.addr)
+	for _, socket := range sockets[1:] {
+		score := socketAddrScore(socket.addr)
+		if score < bestScore {
+			best = socket
+			bestScore = score
+		}
 	}
-	name, _, _ = strings.Cut(name, " ")
-	name = strings.TrimSpace(name)
-	return strings.TrimSuffix(name, ".exe")
+	return best.addr
+}
+
+func socketAddrScore(addr string) int {
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return 4
+	}
+	if v4 := ip.To4(); v4 != nil {
+		if v4.IsLoopback() {
+			return 2
+		}
+		return 0
+	}
+	if ip.IsLoopback() {
+		return 3
+	}
+	return 1
 }

@@ -1,0 +1,42 @@
+# Binaries
+/bin/
+bin/
+/tailflow
+/dist/
+/build/
+/out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go
+coverage.out
+*.coverprofile
+vendor/
+
+# Local databases
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.wal
+*.shm
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and temp files
+*.log
+tmp/
+.tmp/
+
+# IDEs and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

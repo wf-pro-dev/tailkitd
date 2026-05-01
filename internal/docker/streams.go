@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,12 +12,35 @@ import (
 	"time"
 
 	dockertypescontainer "github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/wf-pro-dev/tailkit"
 	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"github.com/wf-pro-dev/tailkitd/internal/sse"
 )
+
+func (h *Handler) streamDockerEvents(ctx context.Context, filters filters.Args, sw *sse.Writer, eventName string) error {
+	// Request events from Docker daemon
+	msgs, errs := h.client.Docker().Events(ctx, events.ListOptions{
+		Filters: filters,
+	})
+
+	for {
+		select {
+		case err := <-errs:
+			return err
+		case msg := <-msgs:
+			// Wrap the Docker message in the SSE Writer
+			if err := sw.Send(eventName, msg); err != nil {
+				return err
+			}
+		case <-ctx.Done():
+			return errors.New("stream docker events: context done")
+		}
+	}
+}
 
 func (h *Handler) handleContainerStats(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodGet {

@@ -7,8 +7,11 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/wf-pro-dev/tailkit"
 	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
+	"github.com/wf-pro-dev/tailkitd/internal/sse"
 	"go.uber.org/zap"
 )
 
@@ -85,9 +88,11 @@ func (h *Handler) routeContainer(w http.ResponseWriter, r *http.Request) {
 		h.handleContainerLogs(w, r, id)
 	case "stats":
 		h.handleContainerStats(w, r, id)
+	case "stream":
+		h.handleContainerStream(w, r)
 	default:
 		helpers.WriteError(w, http.StatusNotFound, "unknown container action: "+action,
-			"valid actions: start, stop, restart, logs, stats")
+			"valid actions: start, stop, restart, logs, stats, stream")
 	}
 }
 
@@ -270,4 +275,20 @@ func (h *Handler) handleContainerLogs(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	helpers.WriteJSON(w, http.StatusOK, map[string]string{"logs": out})
+}
+
+func (h *Handler) handleContainerStream(w http.ResponseWriter, r *http.Request) {
+	// Follow the guard and method check pattern seen in metrics
+	sse.Handler(h.streamHeartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
+		f := filters.NewArgs()
+		f.Add("type", "container")
+		return h.streamDockerEvents(ctx, f, sw, tailkit.EventDockerContainer)
+	})(w, r)
+}
+
+func (h *Handler) handleAllDockerEventsStream(w http.ResponseWriter, r *http.Request) {
+	sse.Handler(h.streamHeartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
+		// No type filters to capture containers, images, volumes, etc.
+		return h.streamDockerEvents(ctx, filters.NewArgs(), sw, tailkit.EventDockerAll)
+	})(w, r)
 }

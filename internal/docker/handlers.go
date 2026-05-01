@@ -49,6 +49,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/integrations/docker/swarm/nodes", h.handleSwarmNodes)
 	mux.HandleFunc("/integrations/docker/swarm/services", h.handleSwarmServices)
 
+	// Streams
+	mux.HandleFunc("/integrations/docker/stream", h.handleAllDockerEventsStream)
+
 }
 
 // ─── Available ────────────────────────────────────────────────────────────────

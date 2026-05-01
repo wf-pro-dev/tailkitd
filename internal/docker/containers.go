@@ -88,11 +88,9 @@ func (h *Handler) routeContainer(w http.ResponseWriter, r *http.Request) {
 		h.handleContainerLogs(w, r, id)
 	case "stats":
 		h.handleContainerStats(w, r, id)
-	case "stream":
-		h.handleContainerStream(w, r)
 	default:
 		helpers.WriteError(w, http.StatusNotFound, "unknown container action: "+action,
-			"valid actions: start, stop, restart, logs, stats, stream")
+			"valid actions: start, stop, restart, logs, stats")
 	}
 }
 

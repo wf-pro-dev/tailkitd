@@ -35,6 +35,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 	// Containers
 	mux.HandleFunc("/integrations/docker/containers", h.handleContainers)
+	mux.HandleFunc("/integrations/docker/containers/stream", h.handleContainerStream)
 	mux.HandleFunc("/integrations/docker/containers/", h.routeContainer)
 
 	// Images

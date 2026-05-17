@@ -1,5 +1,7 @@
 # Installation
 
+tailkitd currently supports Linux only.
+
 tailkitd requires Tailscale to be installed and the node to be joined to a tailnet before running install.
 
 ---

@@ -5,6 +5,12 @@ import (
 	"os"
 )
 
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 func main() {
 	cmd := "run"
 	if len(os.Args) > 1 {
@@ -12,6 +18,8 @@ func main() {
 	}
 
 	switch cmd {
+	case "--version", "version":
+		fmt.Printf("tailkitd %s (%s, %s)\n", version, commit, date)
 	case "install":
 		cmdInstall(os.Args[2:])
 	case "uninstall":
@@ -30,6 +38,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  tailkitd uninstall            Remove tailkitd from this node\n")
 		fmt.Fprintf(os.Stderr, "  tailkitd verify               Validate installation and config\n")
 		fmt.Fprintf(os.Stderr, "  tailkitd status               Show service status\n")
+		fmt.Fprintf(os.Stderr, "  tailkitd version              Show build version\n")
 		os.Exit(1)
 	}
 }

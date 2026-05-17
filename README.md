@@ -1,6 +1,6 @@
 # tailkitd
 
-A node-level daemon for Tailscale-native infrastructure tooling. tailkitd runs on every node in your tailnet and exposes a consistent HTTP API for files, environment variables, Docker, systemd, and host metrics — all gated by Tailscale identity and local config.
+A node-level daemon for Tailscale-native infrastructure tooling. tailkitd runs on every Linux node in your tailnet and exposes a consistent HTTP API for files, environment variables, Docker, systemd, and host metrics — all gated by Tailscale identity and local config.
 
 Tailscale handles the network. tailkitd handles the node.
 
@@ -23,6 +23,8 @@ Tailscale handles the network. tailkitd handles the node.
 
 ## Installation
 
+Linux only for now.
+
 ```bash
 curl -fsSL https://github.com/wf-pro-dev/tailkitd/releases/latest/download/install.sh | sudo sh -s -- --auth-key tskey-auth-xxxx
 ```
@@ -40,6 +42,7 @@ See [docs/install.md](docs/install.md) for flags, the `nosystemd` variant, and u
 | `tailkitd uninstall` | Remove tailkitd from this node |
 | `tailkitd verify` | Validate installation and config files |
 | `tailkitd status` | Show service status |
+| `tailkitd version` | Show build version |
 
 ---
 

@@ -169,9 +169,7 @@ func (h *Handler) handlePortsStream(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		interval := 100 * time.Millisecond
-
-		ticker := time.NewTicker(interval)
+		ticker := time.NewTicker(h.streamInterval)
 		defer ticker.Stop()
 		previous := current
 		for {

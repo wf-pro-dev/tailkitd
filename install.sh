@@ -1,5 +1,6 @@
 #!/bin/sh
 # tailkitd install script
+# Linux only for now.
 #
 # Pipe install (recommended):
 #   curl -fsSL https://github.com/wf-pro-dev/tailkitd/releases/latest/download/install.sh | sudo sh -s -- --auth-key tskey-auth-...
@@ -67,8 +68,8 @@ OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
 case "$OS" in
-  linux|darwin) ;;
-  *) fatal "unsupported OS: $OS" ;;
+  linux) ;;
+  *) fatal "unsupported OS: $OS (tailkitd currently supports Linux only)" ;;
 esac
 
 case "$ARCH" in

@@ -1,0 +1,44 @@
+name: Tailkitd Release
+true:
+  push:
+    tags:
+    - v*
+permissions:
+  contents: write
+  packages: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Run tests
+      run: go test ./...
+  binary:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache: true
+    - name: Install cross-compile toolchains (CGO)
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu
+    - name: Run GoReleaser
+      uses: goreleaser/goreleaser-action@v6
+      with:
+        distribution: goreleaser
+        version: latest
+        args: release --clean
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

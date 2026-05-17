@@ -290,12 +290,13 @@ func (h *Handler) handleUnitControl(w http.ResponseWriter, r *http.Request, unit
 
 	conn, _ := h.client.dbusConn()
 	jobID := h.jobs.NewJob()
-
-	h.logger.Info("systemd: unit control accepted",
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
 		zap.String("unit", unit),
 		zap.String("action", action),
 		zap.String("job_id", jobID),
-	)
+	})
+
+	h.logger.Debug("systemd: unit control accepted", logFields...)
 
 	go func() {
 		// D-Bus result channel: systemd writes "done", "failed", etc. when the
@@ -318,10 +319,7 @@ func (h *Handler) handleUnitControl(w http.ResponseWriter, r *http.Request, unit
 
 		if dbusErr != nil {
 			h.logger.Error("systemd: unit control D-Bus call failed",
-				zap.String("unit", unit),
-				zap.String("action", action),
-				zap.Error(dbusErr),
-			)
+				append(logFields, zap.Error(dbusErr))...)
 			h.jobs.StoreResult(jobID, types.JobResult{
 				JobID:  jobID,
 				Status: types.JobStatusFailed,
@@ -344,16 +342,10 @@ func (h *Handler) handleUnitControl(w http.ResponseWriter, r *http.Request, unit
 			status = types.JobStatusFailed
 			errMsg = fmt.Sprintf("systemd job result: %s", result)
 			h.logger.Error("systemd: unit control failed",
-				zap.String("unit", unit),
-				zap.String("action", action),
-				zap.String("result", result),
-			)
+				append(logFields, zap.String("result", result))...)
 		} else {
 			h.logger.Info("systemd: unit control completed",
-				zap.String("unit", unit),
-				zap.String("action", action),
-				zap.String("result", result),
-			)
+				append(logFields, zap.String("result", result))...)
 		}
 
 		h.jobs.StoreResult(jobID, types.JobResult{
@@ -393,6 +385,15 @@ func (h *Handler) handleUnitEnable(w http.ResponseWriter, r *http.Request, unit 
 
 	conn, _ := h.client.dbusConn()
 	jobID := h.jobs.NewJob()
+	action := "enable"
+	if !enable {
+		action = "disable"
+	}
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("unit", unit),
+		zap.String("action", action),
+		zap.String("job_id", jobID),
+	})
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -408,15 +409,8 @@ func (h *Handler) handleUnitEnable(w http.ResponseWriter, r *http.Request, unit 
 		}
 
 		if opErr != nil {
-			action := "enable"
-			if !enable {
-				action = "disable"
-			}
 			h.logger.Error("systemd: unit enable/disable failed",
-				zap.String("unit", unit),
-				zap.String("action", action),
-				zap.Error(opErr),
-			)
+				append(logFields, zap.Error(opErr))...)
 			h.jobs.StoreResult(jobID, types.JobResult{
 				JobID:  jobID,
 				Status: types.JobStatusFailed,
@@ -432,6 +426,7 @@ func (h *Handler) handleUnitEnable(w http.ResponseWriter, r *http.Request, unit 
 			JobID:  jobID,
 			Status: types.JobStatusCompleted,
 		})
+		h.logger.Info("systemd: unit enable/disable completed", logFields...)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted,

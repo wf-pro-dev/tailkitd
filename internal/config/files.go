@@ -41,7 +41,7 @@ func loadFilesConfigFrom(_ context.Context, logger *zap.Logger, path string) (ty
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Warn("config missing",
+			logger.Debug("config missing",
 				zap.String("file", path),
 				zap.String("effect", "files integration disabled"),
 			)
@@ -84,7 +84,7 @@ func loadFilesConfigFrom(_ context.Context, logger *zap.Logger, path string) (ty
 			continue
 		}
 		rule.UseAs = types.ResolvedIdentity{UID: id.UID, GID: id.GID, Set: true}
-		logger.Info("files: write_as resolved",
+		logger.Debug("files: write_as resolved",
 			zap.String("dir", rule.Dir),
 			zap.String("user", rule.UseAsUser),
 			zap.Int("uid", id.UID),
@@ -93,7 +93,7 @@ func loadFilesConfigFrom(_ context.Context, logger *zap.Logger, path string) (ty
 	}
 
 	cfg.Enabled = true
-	logger.Info("config loaded", zap.String("file", path))
+	logger.Debug("config loaded", zap.String("file", path))
 	return cfg, nil
 }
 

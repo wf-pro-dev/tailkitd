@@ -99,7 +99,7 @@ func (r *Registry) watchLoop(ctx context.Context, watcher *fsnotify.Watcher) {
 			if !strings.HasSuffix(event.Name, ".json") {
 				continue
 			}
-			r.logger.Info("tools dir changed, rebuilding exec registry",
+			r.logger.Debug("tools dir changed, rebuilding exec registry",
 				zap.String("file", filepath.Base(event.Name)),
 				zap.String("op", event.Op.String()),
 			)
@@ -144,7 +144,7 @@ func (r *Registry) rebuild() error {
 			continue
 		}
 		newIndex[tool.Name] = ExecEntry{Tool: tool}
-		r.logger.Info("loaded tool into exec registry",
+		r.logger.Debug("loaded tool into exec registry",
 			zap.String("tool", tool.Name),
 			zap.String("version", tool.Version),
 		)
@@ -154,7 +154,7 @@ func (r *Registry) rebuild() error {
 	r.index = newIndex
 	r.mu.Unlock()
 
-	r.logger.Info("exec registry rebuilt", zap.Int("entries", len(newIndex)))
+	r.logger.Debug("exec registry rebuilt", zap.Int("entries", len(newIndex)))
 	return nil
 }
 

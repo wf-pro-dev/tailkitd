@@ -319,7 +319,7 @@ func (h *Handler) sampleCPU(ctx context.Context) (types.CPU, error) {
 
 	info, err := gopsutilcpu.InfoWithContext(ctx)
 	if err != nil {
-		h.logger.Warn("metrics: cpu info unavailable", zap.Error(err))
+		h.logger.Debug("metrics: cpu info unavailable", zap.Error(err))
 		info = nil
 	}
 
@@ -344,7 +344,7 @@ func (h *Handler) sampleMemory(ctx context.Context) (types.Memory, error) {
 	}
 	swap, err := gopsutilmem.SwapMemoryWithContext(ctx)
 	if err != nil {
-		h.logger.Warn("metrics: swap memory unavailable", zap.Error(err))
+		h.logger.Debug("metrics: swap memory unavailable", zap.Error(err))
 		swap = nil
 	}
 	return types.Memory{Virtual: vmem, Swap: swap}, nil

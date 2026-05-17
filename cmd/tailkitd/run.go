@@ -29,15 +29,34 @@ import (
 const toolsDir = "/etc/tailkitd/tools"
 
 func cmdRun() int {
-	// ── Step 1: Logger first, before anything else. ───────────────────────────
-	logger, err := tailkitdlogger.Build(os.Getenv("TAILKITD_ENV"))
+	bootstrapLogger, _ := zap.NewDevelopment()
+	defer bootstrapLogger.Sync() //nolint:errcheck
+
+	logCfg, err := config.LoadLoggingConfig(context.Background(), bootstrapLogger)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tailkitd: failed to load logging config: %v\n", err)
+		return 1
+	}
+
+	loggers, err := tailkitdlogger.Build(logCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tailkitd: failed to initialise logger: %v\n", err)
 		return 1
 	}
-	defer logger.Sync() //nolint:errcheck
+	logger := serviceLogger(loggers.App, "tailkitd", "main")
+	apiLogger := loggers.API
+	defer logger.Sync()    //nolint:errcheck
+	defer apiLogger.Sync() //nolint:errcheck
 
 	logger.Info("tailkitd starting", zap.String("env", os.Getenv("TAILKITD_ENV")))
+	logger.Debug("logging configured",
+		zap.String("app_format", logCfg.App.Format),
+		zap.String("app_level", logCfg.App.Level),
+		zap.Bool("api_enabled", logCfg.API.Enabled),
+		zap.String("api_format", logCfg.API.Format),
+		zap.String("api_path", logCfg.API.Path),
+		zap.String("api_level", logCfg.API.Level),
+	)
 
 	// ── Step 2: Resolve this node's own Tailscale hostname. ──────────────────
 	tsnetHostname, err := resolveHostname(logger)
@@ -45,7 +64,7 @@ func cmdRun() int {
 		logger.Error("fatal: could not determine node hostname", zap.Error(err))
 		return 1
 	}
-	logger.Info("resolved node hostname", zap.String("tsnet_hostname", tsnetHostname))
+	logger.Debug("resolved node hostname", zap.String("tsnet_hostname", tsnetHostname))
 
 	// ── Step 3: Load all integration configs. ────────────────────────────────
 	ctx, cancel := context.WithCancel(context.Background())
@@ -86,13 +105,13 @@ func cmdRun() int {
 	)
 
 	// ── Step 4: Build per-subsystem child loggers. ───────────────────────────
-	toolsLogger := logger.With(zap.String("component", "tools"))
-	execLogger := logger.With(zap.String("component", "exec"))
-	filesLogger := logger.With(zap.String("component", "files"))
-	varsLogger := logger.With(zap.String("component", "vars"))
-	dockerLogger := logger.With(zap.String("component", "docker"))
-	systemdLogger := logger.With(zap.String("component", "systemd"))
-	metricsLogger := logger.With(zap.String("component", "metrics"))
+	toolsLogger := serviceLogger(loggers.App, "tailkitd/tools", "tools")
+	execLogger := serviceLogger(loggers.App, "tailkitd/exec", "exec")
+	filesLogger := serviceLogger(loggers.App, "tailkitd/files", "files")
+	varsLogger := serviceLogger(loggers.App, "tailkitd/vars", "vars")
+	dockerLogger := serviceLogger(loggers.App, "tailkitd/docker", "docker")
+	systemdLogger := serviceLogger(loggers.App, "tailkitd/systemd", "systemd")
+	metricsLogger := serviceLogger(loggers.App, "tailkitd/metrics", "metrics")
 
 	// ── Step 5: Build tool registry (for GET /tools). ────────────────────────
 	toolsRegistry := tools.NewRegistry(toolsDir, toolsLogger)
@@ -156,6 +175,7 @@ func cmdRun() int {
 	// ── Step 13: Wire router. ────────────────────────────────────────────────
 	mux := http.NewServeMux()
 	var handler http.Handler = mux
+	handler = helpers.RequestLogger(apiLogger)(handler)
 	handler = tailkit.AuthMiddleware(srv)(handler)
 
 	mux.Handle("/tools", toolsRegistry.Handler())
@@ -198,11 +218,6 @@ func cmdRun() int {
 		addr = ":" + p
 	}
 
-	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: handler,
-	}
-
 	serveErr := make(chan error, 1)
 	go func() {
 		logger.Info("tailkitd listening",
@@ -226,7 +241,7 @@ func cmdRun() int {
 		// systemd will just time out waiting for READY and restart us.
 		logger.Warn("sd_notify READY failed", zap.Error(err))
 	} else if sent {
-		logger.Info("sd_notify: READY=1 sent")
+		logger.Debug("sd_notify: READY=1 sent")
 	}
 
 	// ── Step 16: Watchdog loop. ───────────────────────────────────────────────
@@ -239,7 +254,7 @@ func cmdRun() int {
 		if err != nil || interval == 0 {
 			return
 		}
-		logger.Info("watchdog enabled", zap.Duration("interval", interval))
+		logger.Debug("watchdog enabled", zap.Duration("interval", interval))
 		ticker := time.NewTicker(interval / 2)
 		defer ticker.Stop()
 		for {
@@ -267,25 +282,28 @@ func cmdRun() int {
 	}
 
 	// ── Step 18: Graceful shutdown. ───────────────────────────────────────────
-	// Give in-flight requests up to 15 seconds to complete before forcing close.
-	cancel() // stop watchdog and any context-bound work
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer shutdownCancel()
-
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		logger.Warn("graceful shutdown timed out", zap.Error(err))
+	// Stop watchdog and bound work, then close the real tsnet listener.
+	cancel()
+	if err := srv.Close(); err != nil {
+		logger.Warn("server close failed", zap.Error(err))
 	}
 
 	logger.Info("tailkitd stopped cleanly")
 	return 0
 }
 
+func serviceLogger(logger *zap.Logger, service, component string) *zap.Logger {
+	return logger.With(
+		zap.String("service", service),
+		zap.String("component", component),
+	)
+}
+
 // resolveHostname returns the tsnet hostname tailkitd should register as.
 // See hostname.go for the resolution logic and sanitizeHostname.
 func resolveHostname(logger *zap.Logger) (string, error) {
 	if h := os.Getenv("TAILKITD_HOSTNAME"); h != "" {
-		logger.Info("using explicit TAILKITD_HOSTNAME", zap.String("hostname", h))
+		logger.Debug("using explicit TAILKITD_HOSTNAME", zap.String("hostname", h))
 		return h, nil
 	}
 
@@ -293,7 +311,7 @@ func resolveHostname(logger *zap.Logger) (string, error) {
 	status, err := lc.Status(context.Background())
 	if err == nil && status.Self != nil && status.Self.HostName != "" {
 		h := "tailkitd-" + SanitizeHostname(status.Self.HostName)
-		logger.Info("resolved hostname from system tailscaled",
+		logger.Debug("resolved hostname from system tailscaled",
 			zap.String("host_hostname", status.Self.HostName),
 			zap.String("tsnet_hostname", h),
 		)
@@ -310,7 +328,7 @@ func resolveHostname(logger *zap.Logger) (string, error) {
 		return "", fmt.Errorf("could not determine hostname from env, tailscaled, or OS: %w", err)
 	}
 	h := "tailkitd-" + SanitizeHostname(osHost)
-	logger.Info("resolved hostname from OS hostname",
+	logger.Debug("resolved hostname from OS hostname",
 		zap.String("os_hostname", osHost),
 		zap.String("tsnet_hostname", h),
 	)

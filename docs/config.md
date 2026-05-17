@@ -17,6 +17,7 @@ sudo systemctl restart tailkitd
 ```
 /etc/tailkitd/
   env                          # auth key + runtime env vars (written by install)
+  logging.toml                 # app + API logging config
   tools/                       # tool registration files (written by tailkit.Install())
   integrations/
     files.toml
@@ -26,7 +27,104 @@ sudo systemctl restart tailkitd
     metrics.toml
 /var/lib/tailkitd/
   recv/                        # default file inbox (one subdirectory per tool)
+/var/log/tailkitd/
+  api.json.log                 # rotated API/request logs
 ```
+
+---
+
+## logging.toml
+
+Controls app/state logging and API/request logging.
+
+App logs go to `stderr` and are meant for local `journalctl` or console
+inspection. API/request logs go to a dedicated JSON file for collection.
+
+```toml
+# /etc/tailkitd/logging.toml
+
+[app]
+level = "info"
+format = "text"
+
+[api]
+enabled = true
+level = "info"
+format = "json"
+path = "/var/log/tailkitd/api.json.log"
+
+[api.rotation]
+max_size_mb = 100
+max_backups = 10
+max_age_days = 14
+compress = true
+```
+
+**Default behavior:**
+- app logs write to `stderr`
+- API logs write to `/var/log/tailkitd/api.json.log`
+- app format defaults to `text`
+- API format defaults to `json`
+- both app and API log levels default to `info`
+
+**App fields:**
+- `level`
+  - Valid values: `debug`, `info`, `warn`, `error`
+- `format`
+  - Valid values: `text`, `json`
+
+**API fields:**
+- `enabled`
+  - Enables or disables API/request logging
+- `level`
+  - Valid values: `debug`, `info`, `warn`, `error`
+- `format`
+  - Must be `json`
+- `path`
+  - Absolute path to the API log file
+
+**API rotation fields:**
+- `max_size_mb`
+  - Rotate when the file reaches this size in megabytes
+- `max_backups`
+  - Number of rotated files to keep
+- `max_age_days`
+  - Maximum age of rotated files in days
+- `compress`
+  - Compress rotated files when `true`
+
+**Environment overrides:**
+
+Use `/etc/tailkitd/env` for operator overrides under systemd.
+
+| Variable | Meaning |
+|---|---|
+| `TAILKITD_APP_LOG_LEVEL` | Override `[app].level` |
+| `TAILKITD_APP_LOG_FORMAT` | Override `[app].format` |
+| `TAILKITD_API_LOG_ENABLED` | Override `[api].enabled` |
+| `TAILKITD_API_LOG_LEVEL` | Override `[api].level` |
+| `TAILKITD_API_LOG_PATH` | Override `[api].path` |
+| `TAILKITD_API_LOG_MAX_SIZE_MB` | Override `[api.rotation].max_size_mb` |
+| `TAILKITD_API_LOG_MAX_BACKUPS` | Override `[api.rotation].max_backups` |
+| `TAILKITD_API_LOG_MAX_AGE_DAYS` | Override `[api.rotation].max_age_days` |
+| `TAILKITD_API_LOG_COMPRESS` | Override `[api.rotation].compress` |
+| `TAILKITD_LOG_LEVEL` | Deprecated alias for `TAILKITD_APP_LOG_LEVEL` |
+
+**Precedence:**
+
+1. built-in defaults
+2. `/etc/tailkitd/logging.toml`
+3. environment overrides from `/etc/tailkitd/env`
+
+**Request log level policy:**
+- `INFO` for successful state-changing requests
+- `INFO` for successful read-only requests
+- `DEBUG` for high-volume, low-value read paths such as health and stream endpoints
+- `WARN` for `4xx`
+- `ERROR` for `5xx`
+
+API request logs include a generated `request_id`. Request-scoped app logs
+reuse the same `request_id` when available.
 
 ---
 

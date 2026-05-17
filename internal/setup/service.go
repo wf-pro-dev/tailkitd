@@ -33,7 +33,7 @@ RestartSec=5s
 
 # Filesystem sandboxing
 ProtectSystem=strict
-ReadWritePaths=/etc/tailkitd /var/lib/tailkitd
+ReadWritePaths=/etc/tailkitd /var/lib/tailkitd /var/log/tailkitd
 PrivateTmp=true
 
 # Nodes that do not use write_as are unaffected — the capabilities are present

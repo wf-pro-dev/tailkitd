@@ -116,6 +116,6 @@ func (s *JobStore) evict() {
 	}
 	s.mu.Unlock()
 	if evicted > 0 {
-		s.logger.Info("evicted expired jobs", zap.Int("count", evicted))
+		s.logger.Debug("evicted expired jobs", zap.Int("count", evicted))
 	}
 }

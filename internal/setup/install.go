@@ -95,6 +95,7 @@ func Install(opts InstallOptions) error {
 
 	fmt.Println("\n✓  tailkitd installed successfully")
 	fmt.Println("   Logs: journalctl -u tailkitd -f")
+	fmt.Println("   API logs: /var/log/tailkitd/api.json.log")
 	fmt.Println("   Config: /etc/tailkitd/integrations/")
 	return nil
 }

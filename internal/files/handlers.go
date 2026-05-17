@@ -138,16 +138,19 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 		// Path traversal check — belt-and-suspenders after the regex above.
 		if !strings.HasPrefix(filepath.Clean(dest), recvBase) {
-			h.logger.Warn("files: path traversal in default inbox write",
-				zap.String("tool", tool), zap.String("filename", filename),
-				zap.String("caller", caller.Hostname))
+			h.logger.Warn("files: path traversal in default inbox write", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+				zap.String("tool", tool),
+				zap.String("filename", filename),
+				zap.String("caller", caller.Hostname),
+			})...)
 			helpers.WriteError(w, http.StatusBadRequest, "path traversal detected", "")
 			return
 		}
 
 		if err := os.MkdirAll(destDir, 0750); err != nil {
-			h.logger.Error("files: mkdir recv tool dir failed",
-				zap.String("dir", toolDir), zap.Error(err))
+			h.logger.Error("files: mkdir recv tool dir failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+				zap.String("dir", toolDir), zap.Error(err),
+			})...)
 			helpers.WriteError(w, http.StatusInternalServerError,
 				"failed to create recv directory", "")
 			return
@@ -155,18 +158,19 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 		n, err := atomicWrite(dest, r.Body) // daemon identity, no drop
 		if err != nil {
-			h.logger.Error("files: default inbox write failed",
-				zap.String("dest", dest), zap.String("caller", caller.Hostname), zap.Error(err))
+			h.logger.Error("files: default inbox write failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+				zap.String("dest", dest), zap.String("caller", caller.Hostname), zap.Error(err),
+			})...)
 			helpers.WriteError(w, http.StatusInternalServerError, "write failed: "+err.Error(), "")
 			return
 		}
 
-		h.logger.Info("file received (default inbox)",
+		h.logger.Info("file received (default inbox)", helpers.WithRequestLogFields(r.Context(), []zap.Field{
 			zap.String("dest", dest),
 			zap.String("tool", tool),
 			zap.String("caller", caller.Hostname),
 			zap.Int64("size", n),
-		)
+		})...)
 
 		helpers.WriteJSON(w, http.StatusOK, types.SendResult{
 			WrittenTo:    dest,
@@ -178,8 +182,9 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 	// ── Explicit destination path ─────────────────────────────────────────────
 	rule, allowedDir, ok := h.cfg.MatchPathRule(destPath)
 	if !ok {
-		h.logger.Warn("files: no write rule matches path",
-			zap.String("dest_path", destPath))
+		h.logger.Warn("files: no write rule matches path", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+			zap.String("dest_path", destPath),
+		})...)
 		helpers.WriteError(w, http.StatusForbidden,
 			"no write rule configured for this path",
 			"add a matching entry in files.toml")
@@ -194,32 +199,32 @@ func (h *Handler) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 	cleanDest := filepath.Clean(destPath)
 	if !strings.HasPrefix(cleanDest, strings.TrimSuffix(allowedDir, "/")) {
-		h.logger.Warn("files: path traversal attempt",
+		h.logger.Warn("files: path traversal attempt", helpers.WithRequestLogFields(r.Context(), []zap.Field{
 			zap.String("dest_path", destPath),
 			zap.String("clean_path", cleanDest),
 			zap.String("allowed_dir", allowedDir),
 			zap.String("caller", caller.Hostname),
-		)
+		})...)
 		helpers.WriteError(w, http.StatusBadRequest, "path traversal detected", "")
 		return
 	}
 
 	n, err := atomicWriteAs(cleanDest, r.Body, rule.UseAs)
 	if err != nil {
-		h.logger.Error("files: write failed",
+		h.logger.Error("files: write failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
 			zap.String("dest", cleanDest),
 			zap.String("caller", caller.Hostname),
 			zap.Error(err),
-		)
+		})...)
 		helpers.WriteError(w, http.StatusInternalServerError, "write failed: "+err.Error(), "")
 		return
 	}
 
-	h.logger.Info("file received",
+	h.logger.Info("file received", helpers.WithRequestLogFields(r.Context(), []zap.Field{
 		zap.String("dest", cleanDest),
 		zap.String("caller", caller.Hostname),
 		zap.Int64("size", n),
-	)
+	})...)
 
 	helpers.WriteJSON(w, http.StatusOK, types.SendResult{
 		WrittenTo:    cleanDest,
@@ -516,19 +521,19 @@ func (h *Handler) handleInboxDelete(w http.ResponseWriter, r *http.Request, tool
 			helpers.WriteError(w, http.StatusNotFound, "file not found", "")
 			return
 		}
-		h.logger.Error("inbox: delete failed",
+		h.logger.Error("inbox: delete failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
 			zap.String("path", cleanPath),
 			zap.String("caller", caller.Hostname),
 			zap.Error(err),
-		)
+		})...)
 		helpers.WriteError(w, http.StatusInternalServerError, "delete failed", "")
 		return
 	}
 
-	h.logger.Info("inbox: file deleted",
+	h.logger.Info("inbox: file deleted", helpers.WithRequestLogFields(r.Context(), []zap.Field{
 		zap.String("path", cleanPath),
 		zap.String("caller", caller.Hostname),
-	)
+	})...)
 	w.WriteHeader(http.StatusNoContent)
 }
 

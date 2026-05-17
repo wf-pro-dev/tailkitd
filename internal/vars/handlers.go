@@ -142,8 +142,11 @@ func (h *Handler) routeScope(w http.ResponseWriter, r *http.Request,
 			return
 		}
 		if err := h.store.DeleteScope(r.Context(), project, env); err != nil {
-			h.logger.Error("vars: delete scope failed",
-				zap.String("project", project), zap.String("env", env), zap.Error(err))
+			h.logger.Error("vars: delete scope failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+				zap.String("project", project),
+				zap.String("env", env),
+				zap.Error(err),
+			})...)
 			helpers.WriteError(w, http.StatusInternalServerError, "failed to delete scope", "")
 			return
 		}
@@ -195,8 +198,11 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request, project, en
 			helpers.WriteJSON(w, http.StatusOK, map[string]string{})
 			return
 		}
-		h.logger.Error("vars: list failed",
-			zap.String("project", project), zap.String("env", env), zap.Error(err))
+		h.logger.Error("vars: list failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+			zap.String("project", project),
+			zap.String("env", env),
+			zap.Error(err),
+		})...)
 		helpers.WriteError(w, http.StatusInternalServerError, "failed to read vars", "")
 		return
 	}
@@ -253,9 +259,12 @@ func (h *Handler) handleSet(w http.ResponseWriter, r *http.Request, project, env
 		case errors.Is(err, ErrInvalidKey):
 			helpers.WriteError(w, http.StatusBadRequest, err.Error(), "")
 		default:
-			h.logger.Error("vars: set failed",
-				zap.String("project", project), zap.String("env", env),
-				zap.String("key", key), zap.Error(err))
+			h.logger.Error("vars: set failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+				zap.String("project", project),
+				zap.String("env", env),
+				zap.String("key", key),
+				zap.Error(err),
+			})...)
 			helpers.WriteError(w, http.StatusInternalServerError, "failed to set var", "")
 		}
 		return
@@ -269,9 +278,12 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request, project, 
 		case errors.Is(err, ErrReservedKey):
 			helpers.WriteError(w, http.StatusBadRequest, err.Error(), "")
 		default:
-			h.logger.Error("vars: delete failed",
-				zap.String("project", project), zap.String("env", env),
-				zap.String("key", key), zap.Error(err))
+			h.logger.Error("vars: delete failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+				zap.String("project", project),
+				zap.String("env", env),
+				zap.String("key", key),
+				zap.Error(err),
+			})...)
 			helpers.WriteError(w, http.StatusInternalServerError, "failed to delete var", "")
 		}
 		return

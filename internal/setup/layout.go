@@ -13,14 +13,16 @@ const (
 	daemonUser  = "tailkitd"
 	daemonGroup = "tailkitd"
 
-	binaryDst = "/usr/local/bin/tailkitd"
-	configDir = "/etc/tailkitd"
-	integrDir = "/etc/tailkitd/integrations"
-	toolsDir  = "/etc/tailkitd/tools"
-	stateDir  = "/var/lib/tailkitd"
-	recvDir   = "/var/lib/tailkitd/recv"
-	envFile   = "/etc/tailkitd/env"
-	unitFile  = "/etc/systemd/system/tailkitd.service"
+	binaryDst   = "/usr/local/bin/tailkitd"
+	configDir   = "/etc/tailkitd"
+	integrDir   = "/etc/tailkitd/integrations"
+	toolsDir    = "/etc/tailkitd/tools"
+	loggingFile = "/etc/tailkitd/logging.toml"
+	stateDir    = "/var/lib/tailkitd"
+	recvDir     = "/var/lib/tailkitd/recv"
+	logDir      = "/var/log/tailkitd"
+	envFile     = "/etc/tailkitd/env"
+	unitFile    = "/etc/systemd/system/tailkitd.service"
 )
 
 // ensureUser creates the tailkitd system user and group if they do not exist.
@@ -75,6 +77,7 @@ func ensureDirectories() error {
 		{toolsDir, 0755},
 		{stateDir, 0700}, // tsnet state — tighter permissions
 		{recvDir, 0755},
+		{logDir, 0755},
 	}
 
 	for _, d := range dirs {
@@ -98,6 +101,7 @@ func writeConfigFiles(i integrations) error {
 		path    string
 		content string
 	}{
+		{loggingFile, skeletonLogging},
 		{filepath.Join(integrDir, "metrics.toml"), skeletonMetrics},
 		{filepath.Join(integrDir, "files.toml"), skeletonFiles},
 		{filepath.Join(integrDir, "vars.toml"), skeletonVars},

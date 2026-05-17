@@ -33,7 +33,7 @@ func NewClient(ctx context.Context, cfg config.SystemdConfig, logger *zap.Logger
 	logger = logger.With(zap.String("component", "systemd"))
 
 	if !cfg.Enabled {
-		logger.Warn("systemd integration disabled — no systemd.toml")
+		logger.Debug("systemd integration disabled — no systemd.toml")
 		return &Client{cfg: cfg, logger: logger}, nil
 	}
 
@@ -48,7 +48,7 @@ func NewClient(ctx context.Context, cfg config.SystemdConfig, logger *zap.Logger
 		return &Client{cfg: cfg, logger: logger}, nil
 	}
 
-	logger.Info("systemd D-Bus connection established")
+	logger.Debug("systemd D-Bus connection established")
 	return &Client{conn: conn, cfg: cfg, logger: logger}, nil
 }
 

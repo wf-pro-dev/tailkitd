@@ -101,7 +101,7 @@ func loadDockerConfigFrom(_ context.Context, logger *zap.Logger, path string) (D
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Warn("config missing",
+			logger.Debug("config missing",
 				zap.String("file", path),
 				zap.String("effect", "docker integration disabled"),
 			)
@@ -132,7 +132,7 @@ func loadDockerConfigFrom(_ context.Context, logger *zap.Logger, path string) (D
 	}
 
 	cfg.Enabled = true
-	logger.Info("config loaded", zap.String("file", path))
+	logger.Debug("config loaded", zap.String("file", path))
 	return cfg, nil
 }
 

@@ -127,6 +127,9 @@ func (h *Handler) handleContainerStart(w http.ResponseWriter, r *http.Request, i
 	}
 
 	jobID := h.jobs.NewJob()
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("container", id),
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -140,14 +143,15 @@ func (h *Handler) handleContainerStart(w http.ResponseWriter, r *http.Request, i
 			}
 			h.jobs.StoreResult(jobID, result)
 			h.logger.Error("docker: container start failed",
-				zap.String("container", id), zap.Error(err))
+				append(logFields, zap.Error(err))...)
 			return
 		}
 		h.jobs.StoreResult(jobID, types.JobResult{
 			JobID:  jobID,
 			Status: types.JobStatusCompleted,
 		})
-		h.logger.Info("docker: container start completed", zap.String("container", id))
+		h.logger.Info("docker: container start completed",
+			append(logFields, zap.String("job_id", jobID))...)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
@@ -166,6 +170,9 @@ func (h *Handler) handleContainerStop(w http.ResponseWriter, r *http.Request, id
 	}
 
 	jobID := h.jobs.NewJob()
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("container", id),
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -180,14 +187,15 @@ func (h *Handler) handleContainerStop(w http.ResponseWriter, r *http.Request, id
 			}
 			h.jobs.StoreResult(jobID, result)
 			h.logger.Error("docker: container stop failed",
-				zap.String("container", id), zap.Error(err))
+				append(logFields, zap.Error(err))...)
 			return
 		}
 		h.jobs.StoreResult(jobID, types.JobResult{
 			JobID:  jobID,
 			Status: types.JobStatusCompleted,
 		})
-		h.logger.Info("docker: container stop completed", zap.String("container", id))
+		h.logger.Info("docker: container stop completed",
+			append(logFields, zap.String("job_id", jobID))...)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
@@ -206,6 +214,9 @@ func (h *Handler) handleContainerRestart(w http.ResponseWriter, r *http.Request,
 	}
 
 	jobID := h.jobs.NewJob()
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("container", id),
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -220,14 +231,15 @@ func (h *Handler) handleContainerRestart(w http.ResponseWriter, r *http.Request,
 			}
 			h.jobs.StoreResult(jobID, result)
 			h.logger.Error("docker: container restart failed",
-				zap.String("container", id), zap.Error(err))
+				append(logFields, zap.Error(err))...)
 			return
 		}
 		h.jobs.StoreResult(jobID, types.JobResult{
 			JobID:  jobID,
 			Status: types.JobStatusCompleted,
 		})
-		h.logger.Info("docker: container restart completed", zap.String("container", id))
+		h.logger.Info("docker: container restart completed",
+			append(logFields, zap.String("job_id", jobID))...)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
@@ -276,10 +288,29 @@ func (h *Handler) handleContainerLogs(w http.ResponseWriter, r *http.Request, id
 }
 
 func (h *Handler) handleContainerStream(w http.ResponseWriter, r *http.Request) {
+
+	if !h.cfg.Containers.Enabled {
+		helpers.WriteError(w, http.StatusForbidden, "containers.read not enabled in docker.toml", "")
+		return
+	}
 	// Follow the guard and method check pattern seen in metrics
 	sse.Handler(h.streamHeartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
 		f := filters.NewArgs()
 		f.Add("type", "container")
+		return h.streamDockerEvents(ctx, f, sw, tailkit.EventDockerContainer)
+	})(w, r)
+}
+
+func (h *Handler) handleSwarmStream(w http.ResponseWriter, r *http.Request) {
+
+	if !h.cfg.Swarm.Enabled {
+		helpers.WriteError(w, http.StatusForbidden, "containers.read not enabled in docker.toml", "")
+		return
+	}
+	// Follow the guard and method check pattern seen in metrics
+	sse.Handler(h.streamHeartbeatInterval, func(ctx context.Context, sw *sse.Writer) error {
+		f := filters.NewArgs()
+		f.Add("type", "swarm")
 		return h.streamDockerEvents(ctx, f, sw, tailkit.EventDockerContainer)
 	})(w, r)
 }

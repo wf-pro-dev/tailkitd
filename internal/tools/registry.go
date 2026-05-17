@@ -59,7 +59,7 @@ func (r *Registry) List(ctx context.Context) ([]types.Tool, error) {
 
 		tool, err := r.readOne(filepath.Join(r.dir, entry.Name()))
 		if err != nil {
-			r.logger.Warn("malformed tool file",
+			r.logger.Debug("malformed tool file",
 				zap.String("file", entry.Name()),
 				zap.Error(err),
 			)

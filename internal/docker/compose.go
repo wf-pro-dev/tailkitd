@@ -158,6 +158,9 @@ func (h *Handler) handleComposeUp(w http.ResponseWriter, r *http.Request, projec
 	composefile := r.URL.Query().Get("file")
 
 	jobID := h.jobs.NewJob()
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("project", project),
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
@@ -170,10 +173,7 @@ func (h *Handler) handleComposeUp(w http.ResponseWriter, r *http.Request, projec
 
 		result := h.runDockerCLI(ctx, jobID, args...)
 		h.jobs.StoreResult(jobID, result)
-		h.logger.Info("docker: compose up completed",
-			zap.String("project", project),
-			zap.String("status", string(result.Status)),
-		)
+		h.logJobResult("docker: compose up finished", logFields, result)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
@@ -199,15 +199,15 @@ func (h *Handler) handleComposeDown(w http.ResponseWriter, r *http.Request, proj
 	}
 
 	jobID := h.jobs.NewJob()
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("project", project),
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		result := h.runDockerCLI(ctx, jobID, "compose", "-p", project, "down")
 		h.jobs.StoreResult(jobID, result)
-		h.logger.Info("docker: compose down completed",
-			zap.String("project", project),
-			zap.String("status", string(result.Status)),
-		)
+		h.logJobResult("docker: compose down finished", logFields, result)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
@@ -230,11 +230,15 @@ func (h *Handler) handleComposePull(w http.ResponseWriter, r *http.Request, proj
 	}
 
 	jobID := h.jobs.NewJob()
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("project", project),
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		result := h.runDockerCLI(ctx, jobID, "compose", "-p", project, "pull")
 		h.jobs.StoreResult(jobID, result)
+		h.logJobResult("docker: compose pull finished", logFields, result)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
@@ -257,11 +261,15 @@ func (h *Handler) handleComposeRestart(w http.ResponseWriter, r *http.Request, p
 	}
 
 	jobID := h.jobs.NewJob()
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("project", project),
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		result := h.runDockerCLI(ctx, jobID, "compose", "-p", project, "restart")
 		h.jobs.StoreResult(jobID, result)
+		h.logJobResult("docker: compose restart finished", logFields, result)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
@@ -284,11 +292,15 @@ func (h *Handler) handleComposeBuild(w http.ResponseWriter, r *http.Request, pro
 	}
 
 	jobID := h.jobs.NewJob()
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("project", project),
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 		result := h.runDockerCLI(ctx, jobID, "compose", "-p", project, "build")
 		h.jobs.StoreResult(jobID, result)
+		h.logJobResult("docker: compose build finished", logFields, result)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})

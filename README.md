@@ -45,17 +45,64 @@ See [docs/install.md](docs/install.md) for flags, the `nosystemd` variant, and u
 
 ## Logging
 
-tailkitd uses [`go.uber.org/zap`](https://github.com/uber-go/zap). Logs go to stderr.
+tailkitd uses [`go.uber.org/zap`](https://github.com/uber-go/zap).
+
+- App/state logs go to `stderr` and are intended for `journalctl` / local debugging.
+- API/request logs go to `/var/log/tailkitd/api.json.log` as JSON lines.
+- Logging is configured in `/etc/tailkitd/logging.toml`.
+- Environment variables from `/etc/tailkitd/env` can override `logging.toml`.
 
 ```bash
-# Human-readable output at DEBUG level
-TAILKITD_ENV=development tailkitd run
-
-# JSON to stderr at INFO level (default)
+# Default
 tailkitd run
+
+# Override app log level
+TAILKITD_APP_LOG_LEVEL=debug tailkitd run
+
+# Override API log file
+TAILKITD_API_LOG_PATH=/tmp/api.json.log tailkitd run
 ```
 
-Every log line carries a `component` field (`files`, `vars`, `docker`, `systemd`, `metrics`) for easy filtering.
+Example `logging.toml`:
+
+```toml
+[app]
+level = "info"
+format = "text"
+
+[api]
+enabled = true
+level = "info"
+format = "json"
+path = "/var/log/tailkitd/api.json.log"
+
+[api.rotation]
+max_size_mb = 100
+max_backups = 10
+max_age_days = 14
+compress = true
+```
+
+App logs include `service` values like `tailkitd/files`, `tailkitd/docker`, `tailkitd/systemd`, `tailkitd/metrics`, and `tailkitd/vars`.
+
+Level rules:
+
+- `DEBUG`: startup details, config-load success, connection details, watcher churn, accepted async jobs, and other diagnostics that help during debugging but are too noisy for routine operations
+- `INFO`: daemon lifecycle milestones and successful state-changing operations such as file writes, variable mutations, container actions, image pulls, compose actions, and systemd unit changes
+- `WARN`: degraded-but-recoverable conditions, fallbacks, or partial failures where tailkitd continues serving
+- `ERROR`: operation failures or subsystem failures that prevented the requested work from completing
+
+Rule of thumb: log state changes and outcomes, not routine reads, polling, stream ticks, or internal bookkeeping.
+
+Request logging policy:
+
+- successful state-changing requests log at `INFO`
+- successful read-only requests log at `INFO`
+- high-volume, low-value read-only requests such as health checks, availability/config endpoints, stream endpoints, and job polling log at `DEBUG`
+- `4xx` requests log at `WARN`
+- `5xx` requests log at `ERROR`
+
+Request logs include `request_id`, `method`, `path`, `status`, `duration_ms`, and `caller` when available.
 
 ---
 

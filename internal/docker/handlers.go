@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/wf-pro-dev/tailkit/types"
 	"go.uber.org/zap"
 
 	"github.com/wf-pro-dev/tailkitd/internal/config"
@@ -47,6 +48,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 	// Swarm
 
+	mux.HandleFunc("/integrations/docker/swarm/stream", h.handleSwarmStream)
 	mux.HandleFunc("/integrations/docker/swarm/nodes", h.handleSwarmNodes)
 	mux.HandleFunc("/integrations/docker/swarm/services", h.handleSwarmServices)
 
@@ -76,7 +78,7 @@ func (h *Handler) handleAvailable(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if _, err := h.client.Docker().Ping(ctx); err != nil {
-		h.logger.Warn("docker socket unavailable on availability check", zap.Error(err))
+		h.logger.Debug("docker socket unavailable on availability check", zap.Error(err))
 		helpers.WriteError(w, http.StatusServiceUnavailable,
 			"docker daemon unreachable", err.Error())
 		return
@@ -88,4 +90,23 @@ func (h *Handler) handleAvailable(w http.ResponseWriter, r *http.Request) {
 // --- GET /integrations/docker/config ───────────────────────────────────────
 func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
 	helpers.WriteJSON(w, http.StatusOK, h.cfg)
+}
+
+func (h *Handler) logJobResult(op string, fields []zap.Field, result types.JobResult) {
+	fields = append(fields,
+		zap.String("status", string(result.Status)),
+		zap.String("job_id", result.JobID),
+	)
+	if result.Error != "" {
+		fields = append(fields, zap.String("error", result.Error))
+	}
+
+	switch result.Status {
+	case types.JobStatusCompleted:
+		h.logger.Info(op, fields...)
+	case types.JobStatusFailed, types.JobStatusCancelled:
+		h.logger.Error(op, fields...)
+	default:
+		h.logger.Debug(op, fields...)
+	}
 }

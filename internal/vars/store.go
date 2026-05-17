@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 )
 
 const (
@@ -143,13 +145,13 @@ func (s *Store) Set(ctx context.Context, project, env, key, value, caller string
 		return err
 	}
 
-	s.logger.Info("var set",
+	s.logger.Info("var set", helpers.WithRequestLogFields(ctx, []zap.Field{
 		zap.String("project", project),
 		zap.String("env", env),
 		zap.String("key", key),
 		zap.String("caller", caller),
 		// Never log the value — it may be a secret.
-	)
+	})...)
 	return nil
 }
 
@@ -181,12 +183,12 @@ func (s *Store) Delete(ctx context.Context, project, env, key, caller string) er
 		return err
 	}
 
-	s.logger.Info("var deleted",
+	s.logger.Info("var deleted", helpers.WithRequestLogFields(ctx, []zap.Field{
 		zap.String("project", project),
 		zap.String("env", env),
 		zap.String("key", key),
 		zap.String("caller", caller),
-	)
+	})...)
 	return nil
 }
 
@@ -206,6 +208,10 @@ func (s *Store) DeleteScope(ctx context.Context, project, env string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("vars: delete scope %s/%s: %w", project, env, err)
 	}
+	s.logger.Info("var scope deleted", helpers.WithRequestLogFields(ctx, []zap.Field{
+		zap.String("project", project),
+		zap.String("env", env),
+	})...)
 	return nil
 }
 

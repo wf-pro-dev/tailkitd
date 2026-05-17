@@ -43,7 +43,7 @@ func NewClient(ctx context.Context, logger *zap.Logger) (*Client, error) {
 			zap.Error(err),
 		)
 	} else {
-		log.Info("docker client connected",
+		log.Debug("docker client connected",
 			zap.String("socket", "/var/run/docker.sock"),
 		)
 	}

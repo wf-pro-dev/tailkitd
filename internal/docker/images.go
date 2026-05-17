@@ -117,16 +117,16 @@ func (h *Handler) handleImagePull(w http.ResponseWriter, r *http.Request, ref st
 	}
 
 	jobID := h.jobs.NewJob()
+	logFields := helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("ref", ref),
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
 		result := h.runDockerCLI(ctx, jobID, "pull", ref)
 		h.jobs.StoreResult(jobID, result)
-		h.logger.Info("docker: image pull completed",
-			zap.String("ref", ref),
-			zap.String("status", string(result.Status)),
-		)
+		h.logJobResult("docker: image pull finished", logFields, result)
 	}()
 
 	helpers.WriteJSON(w, http.StatusAccepted, types.Job{JobID: jobID, Status: types.JobStatusAccepted})
@@ -149,10 +149,14 @@ func (h *Handler) handleImageRemove(w http.ResponseWriter, r *http.Request, id s
 
 	_, err := h.client.Docker().ImageRemove(ctx, id, image.RemoveOptions{Force: false})
 	if err != nil {
-		h.logger.Error("docker: image remove failed",
-			zap.String("image", id), zap.Error(err))
+		h.logger.Error("docker: image remove failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+			zap.String("image", id), zap.Error(err),
+		})...)
 		helpers.WriteError(w, http.StatusInternalServerError, "failed to remove image", "")
 		return
 	}
+	h.logger.Info("docker: image removed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+		zap.String("image", id),
+	})...)
 	helpers.WriteJSON(w, http.StatusOK, map[string]string{"removed": id})
 }

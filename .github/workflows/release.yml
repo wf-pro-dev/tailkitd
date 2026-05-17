@@ -1,5 +1,5 @@
 name: Tailkitd Release
-true:
+"on":
   push:
     tags:
     - v*

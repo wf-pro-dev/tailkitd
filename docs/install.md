@@ -35,6 +35,7 @@ curl -fsSL https://github.com/wf-pro-dev/tailkitd/releases/latest/download/insta
 8. Enables the service (`daemon-reload` + `systemctl enable`)
 9. Runs `tailkitd verify` — aborts if any check fails
 10. Starts the service and waits for `READY`
+11. Generates shell completions when a supported completion directory is available
 
 Re-running install is safe — existing config files and the env file are never overwritten.
 

@@ -1,62 +1,77 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 
+	"github.com/spf13/cobra"
 	"github.com/wf-pro-dev/tailkitd/internal/setup"
 )
 
-func cmdInstall(args []string) {
-	fs := flag.NewFlagSet("install", flag.ExitOnError)
-	authKey := fs.String("auth-key", "", "Tailscale auth key (required, or set TS_AUTHKEY env var)")
-	hostname := fs.String("hostname", "", "Tailnet hostname for this node (default: system hostname)")
-	fs.Parse(args)
+func newInstallerCmd() *cobra.Command {
+	var authKey string
+	var hostname string
 
-	// Auth key: flag takes precedence over env var.
-	key := *authKey
-	if key == "" {
-		key = os.Getenv("TS_AUTHKEY")
-	}
-	if key == "" {
-		fmt.Fprintln(os.Stderr, "error: --auth-key or TS_AUTHKEY is required")
-		os.Exit(1)
+	cmd := &cobra.Command{
+		Use:    "install-system",
+		Short:  "Install tailkitd on this node",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key := authKey
+			if key == "" {
+				key = os.Getenv("TS_AUTHKEY")
+			}
+			if key == "" {
+				return fmt.Errorf("--auth-key or TS_AUTHKEY is required")
+			}
+			if os.Geteuid() != 0 {
+				return fmt.Errorf("install-system must be run as root (use sudo)")
+			}
+
+			return setup.Install(setup.InstallOptions{
+				AuthKey:  key,
+				Hostname: hostname,
+			})
+		},
 	}
 
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "error: install must be run as root (use sudo)")
-		os.Exit(1)
-	}
+	cmd.Flags().StringVar(&authKey, "auth-key", "", "Tailscale auth key (required, or set TS_AUTHKEY env var)")
+	cmd.Flags().StringVar(&hostname, "hostname", "", "Tailnet hostname for this node (default: system hostname)")
+	return cmd
+}
 
-	opts := setup.InstallOptions{
-		AuthKey:  key,
-		Hostname: *hostname,
-		// Detection of Docker and systemd is automatic inside Install.
-	}
-
-	if err := setup.Install(opts); err != nil {
-		fmt.Fprintf(os.Stderr, "install failed: %v\n", err)
-		os.Exit(1)
+func newUninstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove tailkitd from this node",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if os.Geteuid() != 0 {
+				return fmt.Errorf("uninstall must be run as root (use sudo)")
+			}
+			return setup.Uninstall()
+		},
 	}
 }
 
-func cmdUninstall() {
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "error: uninstall must be run as root (use sudo)")
-		os.Exit(1)
+func newStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show service status",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			statusCmd := exec.Command("systemctl", "status", "tailkitd")
+			statusCmd.Stdout = os.Stdout
+			statusCmd.Stderr = os.Stderr
+			if err := statusCmd.Run(); err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					return exitCodeError(exitErr.ExitCode())
+				}
+				return fmt.Errorf("systemctl status tailkitd: %w", err)
+			}
+			return nil
+		},
 	}
-	if err := setup.Uninstall(); err != nil {
-		fmt.Fprintf(os.Stderr, "uninstall failed: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func cmdStatus() {
-	cmd := exec.Command("systemctl", "status", "tailkitd")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Run() // exit code mirrors systemctl — don't mask it
-	os.Exit(cmd.ProcessState.ExitCode())
 }

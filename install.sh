@@ -29,6 +29,11 @@ info()  { echo "[tailkitd] $*"; }
 fatal() { echo "[tailkitd] error: $*" >&2; exit 1; }
 need()  { command -v "$1" >/dev/null 2>&1 || fatal "'$1' is required but not found"; }
 
+need curl
+need tar
+need grep
+need sha256sum
+
 # ---------- Detect if being piped (stdin is not a tty) ----------
 # When piped, the user cannot interactively respond to prompts.
 # We fail fast on missing flags rather than hanging.
@@ -139,8 +144,75 @@ fi
 
 chmod +x "${TMP}/${BINARY_NAME}"
 
+# ---------- Install binary ----------
+INSTALL_DIR="/usr/local/bin"
+TARGET_BIN="${INSTALL_DIR}/tailkitd"
+
+info "Installing to ${TARGET_BIN}…"
+install -m 0755 "${TMP}/${BINARY_NAME}" "${TARGET_BIN}"
+
+# ── Shell completions ─────────────────────────────────────────────────────────
+
+COMPLETION_RC_FILE=""
+
+setup_completions() {
+  bin="${TARGET_BIN}"
+
+  if ! "$bin" completion --help >/dev/null 2>&1; then
+    info "Shell completion not available for this version — skipping."
+    return 0
+  fi
+
+  actual_user="${SUDO_USER:-$USER}"
+  actual_home=$(eval echo "~${actual_user}")
+
+  if [ -z "$actual_home" ] || [ "$actual_home" = "/root" ]; then
+    info "Warning: Could not determine non-root user home directory — skipping completion setup."
+    return 0
+  fi
+
+  case "$OS" in
+    linux)
+      comp_dir=""
+      if [ -d /etc/bash_completion.d ]; then
+        comp_dir="/etc/bash_completion.d"
+      elif [ -d /usr/local/etc/bash_completion.d ]; then
+        comp_dir="/usr/local/etc/bash_completion.d"
+      fi
+
+      if [ -n "$comp_dir" ]; then
+        info "Generating bash completion file in ${comp_dir}..."
+        "$bin" completion bash | tee "${comp_dir}/tailkitd" >/dev/null
+        COMPLETION_RC_FILE="${actual_home}/.bashrc"
+      else
+        info "No supported bash completion directory found — skipping."
+      fi
+      ;;
+    darwin)
+      zsh_dir=""
+      for candidate in /usr/local/share/zsh/site-functions /usr/share/zsh/vendor-completions; do
+        if [ -d "$candidate" ]; then
+          zsh_dir="$candidate"
+          break
+        fi
+      done
+
+      if [ -n "$zsh_dir" ]; then
+        info "Generating zsh completion file in ${zsh_dir}..."
+        "$bin" completion zsh | tee "${zsh_dir}/_tailkitd" >/dev/null
+        chmod 644 "${zsh_dir}/_tailkitd"
+        COMPLETION_RC_FILE="${actual_home}/.zshrc"
+      else
+        info "No supported zsh completion directory found — skipping."
+      fi
+      ;;
+  esac
+}
+
+setup_completions
+
 # ---------- Hand off to the binary ----------
-info "Running tailkitd install…"
+info "Running tailkitd system install…"
 
 INSTALL_ARGS="--auth-key ${AUTH_KEY}"
 if [ -n "$HOSTNAME_OVERRIDE" ]; then
@@ -148,4 +220,13 @@ if [ -n "$HOSTNAME_OVERRIDE" ]; then
 fi
 
 # shellcheck disable=SC2086
-exec "${TMP}/${BINARY_NAME}" install $INSTALL_ARGS
+"${TARGET_BIN}" install-system $INSTALL_ARGS
+
+echo ""
+echo "  tailkitd ${VERSION} installed successfully."
+if [ -n "$COMPLETION_RC_FILE" ]; then
+  echo ""
+  echo "  To activate shell completions in your current terminal, execute:"
+  echo ""
+  echo "    source $COMPLETION_RC_FILE"
+fi

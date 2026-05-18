@@ -37,12 +37,12 @@ See [docs/install.md](docs/install.md) for flags, the `nosystemd` variant, and u
 
 | Command | Description |
 |---|---|
-| `tailkitd run` | Start the daemon (default) |
-| `tailkitd install [flags]` | Install tailkitd on this node |
+| `tailkitd` | Start the daemon |
 | `tailkitd uninstall` | Remove tailkitd from this node |
 | `tailkitd verify` | Validate installation and config files |
 | `tailkitd status` | Show service status |
 | `tailkitd version` | Show build version |
+| `tailkitd completion bash` | Generate shell completions |
 
 ---
 
@@ -57,13 +57,13 @@ tailkitd uses [`go.uber.org/zap`](https://github.com/uber-go/zap).
 
 ```bash
 # Default
-tailkitd run
+tailkitd
 
 # Override app log level
-TAILKITD_APP_LOG_LEVEL=debug tailkitd run
+TAILKITD_APP_LOG_LEVEL=debug tailkitd
 
 # Override API log file
-TAILKITD_API_LOG_PATH=/tmp/api.json.log tailkitd run
+TAILKITD_API_LOG_PATH=/tmp/api.json.log tailkitd
 ```
 
 Example `logging.toml`:

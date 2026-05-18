@@ -26,7 +26,7 @@ User=tailkitd
 Group=tailkitd
 
 EnvironmentFile=/etc/tailkitd/env
-ExecStart=/usr/local/bin/tailkitd run
+ExecStart=/usr/local/bin/tailkitd
 
 Restart=on-failure
 RestartSec=5s
@@ -49,7 +49,7 @@ WantedBy=multi-user.target
 `
 
 // writeUnitFile writes the systemd service unit to disk.
-// Always overwritten — the unit file is managed by tailkitd install.
+// Always overwritten — the unit file is managed by the tailkitd installer.
 func writeUnitFile() error {
 	if err := atomicWrite(unitFile, []byte(unitContent), 0644); err != nil {
 		return fmt.Errorf("write unit file: %w", err)

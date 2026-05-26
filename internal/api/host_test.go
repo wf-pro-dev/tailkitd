@@ -87,6 +87,9 @@ owner = "platform"
 	if resp.TSHostname != "db-01-ts" {
 		t.Fatalf("TSHostname = %q, want %q", resp.TSHostname, "db-01-ts")
 	}
+	if resp.IsAdmin {
+		t.Fatal("IsAdmin = true, want false")
+	}
 	if len(resp.TSIPs) != 1 || resp.TSIPs[0] != "100.64.0.10" {
 		t.Fatalf("TSIPs = %#v, want [100.64.0.10]", resp.TSIPs)
 	}

@@ -14,6 +14,7 @@ import (
 	"tailscale.com/client/local"
 
 	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkitd/internal/admin"
 	"github.com/wf-pro-dev/tailkitd/internal/api"
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 	"github.com/wf-pro-dev/tailkitd/internal/docker"
@@ -194,6 +195,16 @@ func cmdRun() int {
 		logger.Error("fatal: failed to create tailscale local client", zap.Error(err))
 		return 1
 	}
+	status, err := localClient.Status(ctx)
+	if err != nil {
+		logger.Error("fatal: failed to read tailscale status", zap.Error(err))
+		return 1
+	}
+	adminState, err := admin.BootstrapState(ctx, tsnetHostname, status, srv.HTTPClient(), logger)
+	if err != nil {
+		logger.Error("fatal: failed to initialize admin state", zap.Error(err))
+		return 1
+	}
 
 	// ── Step 13: Wire router. ────────────────────────────────────────────────
 	mux := http.NewServeMux()
@@ -204,6 +215,7 @@ func cmdRun() int {
 	hostHandler := &api.HostHandler{
 		LocalClient: localClient,
 		HostManager: hostManager,
+		AdminState:  adminState,
 	}
 	servicesHandler := &api.ServicesHandler{
 		Outsiders: outsiderRegistry,

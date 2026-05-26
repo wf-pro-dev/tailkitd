@@ -24,6 +24,7 @@ type HostResponse struct {
 	OS           string            `json:"os"`
 	Arch         string            `json:"arch"`
 	Online       bool              `json:"online"`
+	IsAdmin      bool              `json:"is_admin"`
 }
 
 type statusClient interface {
@@ -33,6 +34,7 @@ type statusClient interface {
 type HostHandler struct {
 	LocalClient statusClient
 	HostManager *config.HostManager
+	AdminState  interface{ IsAdmin() bool }
 }
 
 func (h *HostHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +62,7 @@ func (h *HostHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		TSDNSName:    status.Self.DNSName,
 		OS:           status.Self.OS,
 		Online:       true,
+		IsAdmin:      h.AdminState != nil && h.AdminState.IsAdmin(),
 	}
 	for _, ip := range status.Self.TailscaleIPs {
 		resp.TSIPs = append(resp.TSIPs, ip.String())

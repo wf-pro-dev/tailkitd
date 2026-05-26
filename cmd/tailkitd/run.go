@@ -205,8 +205,13 @@ func cmdRun() int {
 		LocalClient: localClient,
 		HostManager: hostManager,
 	}
+	servicesHandler := &api.ServicesHandler{
+		Outsiders: outsiderRegistry,
+		Tools:     toolsRegistry,
+	}
 
 	mux.Handle("/host", hostHandler)
+	mux.Handle("/services", servicesHandler)
 	mux.Handle("/tools", toolsRegistry.Handler())
 	execHandler.Register(mux)
 	filesHandler.Register(mux)

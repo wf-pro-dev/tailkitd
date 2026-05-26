@@ -22,6 +22,7 @@ import (
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	tailkitdlogger "github.com/wf-pro-dev/tailkitd/internal/logger"
 	"github.com/wf-pro-dev/tailkitd/internal/metrics"
+	"github.com/wf-pro-dev/tailkitd/internal/services"
 	"github.com/wf-pro-dev/tailkitd/internal/systemd"
 	"github.com/wf-pro-dev/tailkitd/internal/tools"
 	"github.com/wf-pro-dev/tailkitd/internal/vars"
@@ -120,9 +121,17 @@ func cmdRun() int {
 	dockerLogger := serviceLogger(loggers.App, "tailkitd/docker", "docker")
 	systemdLogger := serviceLogger(loggers.App, "tailkitd/systemd", "systemd")
 	metricsLogger := serviceLogger(loggers.App, "tailkitd/metrics", "metrics")
+	servicesLogger := serviceLogger(loggers.App, "tailkitd/services", "services")
 
 	// ── Step 5: Build tool registry (for GET /tools). ────────────────────────
 	toolsRegistry := tools.NewRegistry(toolsDir, toolsLogger)
+
+	outsiderRegistry, err := services.NewRegistry(ctx, services.DefaultServicesDir, servicesLogger)
+	if err != nil {
+		logger.Error("fatal: failed to start services registry", zap.Error(err))
+		return 1
+	}
+	defer outsiderRegistry.Close() //nolint:errcheck
 
 	// ── Step 6: Build exec subsystem. ────────────────────────────────────────
 	execRegistry, err := exec.NewRegistry(ctx, toolsDir, execLogger)

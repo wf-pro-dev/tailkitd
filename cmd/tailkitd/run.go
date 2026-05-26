@@ -95,6 +95,12 @@ func cmdRun() int {
 		logger.Error("fatal: metrics config invalid", zap.Error(err))
 		return 1
 	}
+	hostManager, err := config.NewHostManager(ctx, config.HostConfigPath, tsnetHostname, logger)
+	if err != nil {
+		logger.Error("fatal: host config invalid", zap.Error(err))
+		return 1
+	}
+	defer hostManager.Close() //nolint:errcheck
 
 	logger.Info("integrations enabled",
 		zap.Bool("files", filesCfg.Enabled),
@@ -103,6 +109,7 @@ func cmdRun() int {
 		zap.Bool("systemd", systemdCfg.Enabled),
 		zap.Bool("metrics", metricsCfg.Enabled),
 	)
+	logger.Debug("host config loaded", zap.String("host_name", hostManager.Get().Name))
 
 	// ── Step 4: Build per-subsystem child loggers. ───────────────────────────
 	toolsLogger := serviceLogger(loggers.App, "tailkitd/tools", "tools")

@@ -14,6 +14,7 @@ import (
 	"tailscale.com/client/local"
 
 	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkitd/internal/api"
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 	"github.com/wf-pro-dev/tailkitd/internal/docker"
 	"github.com/wf-pro-dev/tailkitd/internal/exec"
@@ -179,12 +180,24 @@ func cmdRun() int {
 
 	logger.Info("tsnet server started", zap.String("hostname", tsnetHostname))
 
+	localClient, err := srv.LocalClient()
+	if err != nil {
+		logger.Error("fatal: failed to create tailscale local client", zap.Error(err))
+		return 1
+	}
+
 	// ── Step 13: Wire router. ────────────────────────────────────────────────
 	mux := http.NewServeMux()
 	var handler http.Handler = mux
 	handler = helpers.RequestLogger(apiLogger)(handler)
 	handler = tailkit.AuthMiddleware(srv)(handler)
 
+	hostHandler := &api.HostHandler{
+		LocalClient: localClient,
+		HostManager: hostManager,
+	}
+
+	mux.Handle("/host", hostHandler)
 	mux.Handle("/tools", toolsRegistry.Handler())
 	execHandler.Register(mux)
 	filesHandler.Register(mux)

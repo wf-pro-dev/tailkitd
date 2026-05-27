@@ -22,6 +22,7 @@ import (
 	"github.com/wf-pro-dev/tailkitd/internal/files"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"github.com/wf-pro-dev/tailkitd/internal/identity"
+	"github.com/wf-pro-dev/tailkitd/internal/invite"
 	tailkitdlogger "github.com/wf-pro-dev/tailkitd/internal/logger"
 	"github.com/wf-pro-dev/tailkitd/internal/metrics"
 	"github.com/wf-pro-dev/tailkitd/internal/services"
@@ -230,6 +231,14 @@ func cmdRun() int {
 	identityHandler := &api.IdentityHandler{
 		NodeHostname: tsnetHostname,
 	}
+	inviteStore, err := invite.NewStore(invite.ClaimsStorePath)
+	if err != nil {
+		logger.Error("fatal: failed to initialize invite claim store", zap.Error(err))
+		return 1
+	}
+	inviteClaimHandler := &api.InviteClaimHandler{
+		Store: inviteStore,
+	}
 	adminHandler := &api.AdminHandler{
 		Hostname:       tsnetHostname,
 		HostConfig:     hostManager,
@@ -243,6 +252,7 @@ func cmdRun() int {
 
 	mux.Handle("/host", hostHandler)
 	mux.Handle("/identity/pubkey", identityHandler)
+	mux.Handle("/services/claim", inviteClaimHandler)
 	mux.Handle("/services", servicesHandler)
 	mux.Handle("/admin/", adminHandler)
 	mux.Handle("/tools", toolsRegistry.Handler())

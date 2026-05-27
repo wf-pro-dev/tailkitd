@@ -27,6 +27,7 @@ import (
 	tailkitdlogger "github.com/wf-pro-dev/tailkitd/internal/logger"
 	"github.com/wf-pro-dev/tailkitd/internal/metrics"
 	"github.com/wf-pro-dev/tailkitd/internal/services"
+	"github.com/wf-pro-dev/tailkitd/internal/state"
 	"github.com/wf-pro-dev/tailkitd/internal/systemd"
 	"github.com/wf-pro-dev/tailkitd/internal/tools"
 	"github.com/wf-pro-dev/tailkitd/internal/vars"
@@ -149,6 +150,11 @@ func cmdRun() int {
 		return 1
 	}
 	defer accessRegistry.Close() //nolint:errcheck
+	nodeEpoch, err := state.NewEpoch(state.EpochFilePath)
+	if err != nil {
+		logger.Error("fatal: failed to initialize node mutation epoch", zap.Error(err))
+		return 1
+	}
 
 	// ── Step 6: Build exec subsystem. ────────────────────────────────────────
 	execRegistry, err := exec.NewRegistry(ctx, toolsDir, execLogger)
@@ -257,6 +263,7 @@ func cmdRun() int {
 		AdminState:     adminState,
 		AdminFencePath: admin.AdminFencePath,
 		AccessRegistry: accessRegistry,
+		Epoch:          nodeEpoch,
 		Promoter:       api.NewHTTPPromotionClient(srv.HTTPClient()),
 	}
 

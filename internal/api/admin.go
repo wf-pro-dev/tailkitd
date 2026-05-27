@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -19,6 +20,7 @@ import (
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"github.com/wf-pro-dev/tailkitd/internal/services"
+	"github.com/wf-pro-dev/tailkitd/internal/state"
 	"github.com/wf-pro-dev/tailkitd/internal/utils"
 )
 
@@ -64,6 +66,7 @@ type AdminHandler struct {
 	AdminState     *admin.State
 	AdminFencePath string
 	AccessRegistry *access.Registry
+	Epoch          *state.Epoch
 	Promoter       promotionClient
 }
 
@@ -101,6 +104,18 @@ func (h *AdminHandler) requireAdminKey(next http.HandlerFunc) http.HandlerFunc {
 			helpers.WriteError(w, http.StatusUnauthorized, "invalid admin key", "")
 			return
 		}
+		if isMutationMethod(r.Method) && h.Epoch != nil {
+			callerEpoch, err := parseCallerEpoch(r.Header.Get("X-State-Epoch"))
+			if err != nil {
+				helpers.WriteError(w, http.StatusBadRequest, err.Error(), "")
+				return
+			}
+			if err := h.Epoch.Validate(callerEpoch); err != nil {
+				w.Header().Set("X-State-Epoch", strconv.FormatInt(h.Epoch.Current(), 10))
+				helpers.WriteError(w, http.StatusConflict, err.Error(), "")
+				return
+			}
+		}
 		if h.AccessRegistry != nil && h.AccessRegistry.HasAnyGrants() {
 			caller, ok := tailkit.CallerFromContext(r.Context())
 			if !ok || caller.UserLogin == "" {
@@ -113,8 +128,44 @@ func (h *AdminHandler) requireAdminKey(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
-		next(w, r)
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next(rec, r)
+		if isMutationMethod(r.Method) && h.Epoch != nil && rec.status >= 200 && rec.status < 300 {
+			if nextEpoch, err := h.Epoch.Increment(); err == nil {
+				rec.Header().Set("X-State-Epoch", strconv.FormatInt(nextEpoch, 10))
+			}
+		}
 	}
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func isMutationMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseCallerEpoch(raw string) (int64, error) {
+	if raw == "" {
+		return 0, fmt.Errorf("missing required X-State-Epoch header")
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid X-State-Epoch header")
+	}
+	return n, nil
 }
 
 func (h *AdminHandler) requiredCapability(r *http.Request) (string, string) {

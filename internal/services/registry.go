@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,6 +92,10 @@ func cloneServices(in map[string]OutsiderServiceConfig) map[string]OutsiderServi
 
 func FilePath(dir, name string) string {
 	return filepath.Join(dir, name+".toml")
+}
+
+func EncodeTOML(w io.Writer, svc OutsiderServiceConfig) error {
+	return toml.NewEncoder(w).Encode(svc)
 }
 
 func LoadDir(dirPath string, logger *zap.Logger) (map[string]OutsiderServiceConfig, error) {

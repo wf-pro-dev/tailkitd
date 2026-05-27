@@ -254,6 +254,12 @@ func cmdRun() int {
 	inviteClaimHandler := &api.InviteClaimHandler{
 		Store: inviteStore,
 	}
+	provisionHandler := &api.ProvisionHandler{
+		AccessRegistry: accessRegistry,
+		Services:       outsiderRegistry,
+		ServicesDir:    services.DefaultServicesDir,
+		Epoch:          nodeEpoch,
+	}
 	adminHandler := &api.AdminHandler{
 		Hostname:       tsnetHostname,
 		HostConfig:     hostManager,
@@ -270,6 +276,7 @@ func cmdRun() int {
 	mux.Handle("/host", hostHandler)
 	mux.Handle("/identity/pubkey", identityHandler)
 	mux.Handle("/services/claim", inviteClaimHandler)
+	mux.Handle("/services/provision", provisionHandler)
 	mux.Handle("/services", servicesHandler)
 	mux.Handle("/admin/", adminHandler)
 	mux.Handle("/tools", toolsRegistry.Handler())

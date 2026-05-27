@@ -221,9 +221,20 @@ func cmdRun() int {
 		Outsiders: outsiderRegistry,
 		Tools:     toolsRegistry,
 	}
+	adminHandler := &api.AdminHandler{
+		Hostname:       tsnetHostname,
+		HostConfig:     hostManager,
+		HostConfigPath: config.HostConfigPath,
+		Services:       outsiderRegistry,
+		ServicesDir:    services.DefaultServicesDir,
+		AdminState:     adminState,
+		AdminFencePath: admin.AdminFencePath,
+		Promoter:       api.NewHTTPPromotionClient(srv.HTTPClient()),
+	}
 
 	mux.Handle("/host", hostHandler)
 	mux.Handle("/services", servicesHandler)
+	mux.Handle("/admin/", adminHandler)
 	mux.Handle("/tools", toolsRegistry.Handler())
 	execHandler.Register(mux)
 	filesHandler.Register(mux)

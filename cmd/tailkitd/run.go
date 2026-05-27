@@ -21,6 +21,7 @@ import (
 	"github.com/wf-pro-dev/tailkitd/internal/exec"
 	"github.com/wf-pro-dev/tailkitd/internal/files"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
+	"github.com/wf-pro-dev/tailkitd/internal/identity"
 	tailkitdlogger "github.com/wf-pro-dev/tailkitd/internal/logger"
 	"github.com/wf-pro-dev/tailkitd/internal/metrics"
 	"github.com/wf-pro-dev/tailkitd/internal/services"
@@ -72,6 +73,11 @@ func cmdRun() int {
 	// ── Step 3: Load all integration configs. ────────────────────────────────
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	if err := identity.EnsureArtifactKeys(ctx, logger); err != nil {
+		logger.Error("fatal: failed to initialize artifact identity", zap.Error(err))
+		return 1
+	}
 
 	filesCfg, err := config.LoadFilesConfig(ctx, logger)
 	if err != nil {
@@ -221,6 +227,9 @@ func cmdRun() int {
 		Outsiders: outsiderRegistry,
 		Tools:     toolsRegistry,
 	}
+	identityHandler := &api.IdentityHandler{
+		NodeHostname: tsnetHostname,
+	}
 	adminHandler := &api.AdminHandler{
 		Hostname:       tsnetHostname,
 		HostConfig:     hostManager,
@@ -233,6 +242,7 @@ func cmdRun() int {
 	}
 
 	mux.Handle("/host", hostHandler)
+	mux.Handle("/identity/pubkey", identityHandler)
 	mux.Handle("/services", servicesHandler)
 	mux.Handle("/admin/", adminHandler)
 	mux.Handle("/tools", toolsRegistry.Handler())

@@ -14,6 +14,7 @@ import (
 	"tailscale.com/client/local"
 
 	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkitd/internal/access"
 	"github.com/wf-pro-dev/tailkitd/internal/admin"
 	"github.com/wf-pro-dev/tailkitd/internal/api"
 	"github.com/wf-pro-dev/tailkitd/internal/config"
@@ -130,6 +131,7 @@ func cmdRun() int {
 	systemdLogger := serviceLogger(loggers.App, "tailkitd/systemd", "systemd")
 	metricsLogger := serviceLogger(loggers.App, "tailkitd/metrics", "metrics")
 	servicesLogger := serviceLogger(loggers.App, "tailkitd/services", "services")
+	accessLogger := serviceLogger(loggers.App, "tailkitd/access", "access")
 
 	// ── Step 5: Build tool registry (for GET /tools). ────────────────────────
 	toolsRegistry := tools.NewRegistry(toolsDir, toolsLogger)
@@ -140,6 +142,13 @@ func cmdRun() int {
 		return 1
 	}
 	defer outsiderRegistry.Close() //nolint:errcheck
+
+	accessRegistry, err := access.NewRegistry(ctx, access.DefaultAccessDir, accessLogger)
+	if err != nil {
+		logger.Error("fatal: failed to start access registry", zap.Error(err))
+		return 1
+	}
+	defer accessRegistry.Close() //nolint:errcheck
 
 	// ── Step 6: Build exec subsystem. ────────────────────────────────────────
 	execRegistry, err := exec.NewRegistry(ctx, toolsDir, execLogger)
@@ -247,6 +256,7 @@ func cmdRun() int {
 		ServicesDir:    services.DefaultServicesDir,
 		AdminState:     adminState,
 		AdminFencePath: admin.AdminFencePath,
+		AccessRegistry: accessRegistry,
 		Promoter:       api.NewHTTPPromotionClient(srv.HTTPClient()),
 	}
 

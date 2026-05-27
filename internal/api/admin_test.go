@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkitd/internal/access"
 	"github.com/wf-pro-dev/tailkitd/internal/admin"
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 	"github.com/wf-pro-dev/tailkitd/internal/services"
@@ -32,16 +34,20 @@ func newAdminHandlerForTest(t *testing.T) (*AdminHandler, string) {
 	oldAdminDir := admin.AdminDirPath
 	oldAdminKey := admin.AdminKeyPath
 	oldAdminFence := admin.AdminFencePath
+	oldAccessDir := access.DefaultAccessDir
 
 	hostConfigPath := filepath.Join(base, "host.toml")
 	servicesDir := filepath.Join(base, "services.d")
+	accessDir := filepath.Join(base, "access.d")
 	admin.AdminDirPath = base
 	admin.AdminKeyPath = filepath.Join(base, "admin.key")
 	admin.AdminFencePath = filepath.Join(base, "admin.fence")
+	access.DefaultAccessDir = accessDir
 	t.Cleanup(func() {
 		admin.AdminDirPath = oldAdminDir
 		admin.AdminKeyPath = oldAdminKey
 		admin.AdminFencePath = oldAdminFence
+		access.DefaultAccessDir = oldAccessDir
 	})
 
 	if err := os.WriteFile(hostConfigPath, []byte("name = \"node-a\"\n"), 0o644); err != nil {
@@ -65,6 +71,12 @@ func newAdminHandlerForTest(t *testing.T) (*AdminHandler, string) {
 	}
 	t.Cleanup(func() { _ = svcReg.Close() })
 
+	accessReg, err := access.NewRegistry(ctx, accessDir, zap.NewNop())
+	if err != nil {
+		t.Fatalf("NewRegistry access: %v", err)
+	}
+	t.Cleanup(func() { _ = accessReg.Close() })
+
 	state := &admin.State{}
 	state.SetAdmin(true)
 	return &AdminHandler{
@@ -75,6 +87,7 @@ func newAdminHandlerForTest(t *testing.T) (*AdminHandler, string) {
 		ServicesDir:    servicesDir,
 		AdminState:     state,
 		AdminFencePath: admin.AdminFencePath,
+		AccessRegistry: accessReg,
 		Promoter:       fakePromoter{},
 	}, base
 }
@@ -150,5 +163,33 @@ func TestAdminHandlerAtomicWriteAllowsBase64(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestAdminHandlerRBACDeniesWithoutGrant(t *testing.T) {
+	handler, _ := newAdminHandlerForTest(t)
+	key, err := admin.GetAdminKey()
+	if err != nil {
+		t.Fatalf("GetAdminKey: %v", err)
+	}
+
+	grantsBody := []byte(`{"grants":[{"identity":"alice@example.com","target":"nextcloud","role":"admin"}]}`)
+	grantsReq := httptest.NewRequest(http.MethodPost, "/admin/access/grants", bytes.NewReader(grantsBody))
+	grantsReq.Header.Set("X-Admin-Key", key)
+	grantsReq = grantsReq.WithContext(context.WithValue(grantsReq.Context(), tailkit.CallerContextKey{}, tailkit.CallerIdentity{UserLogin: "alice@example.com"}))
+	grantsRec := httptest.NewRecorder()
+	handler.ServeHTTP(grantsRec, grantsReq)
+	if grantsRec.Code != http.StatusOK {
+		t.Fatalf("grant status = %d, want %d", grantsRec.Code, http.StatusOK)
+	}
+
+	body := []byte(`{"runtime":"systemd","systemd_unit":"nginx.service"}`)
+	req := httptest.NewRequest(http.MethodPost, "/admin/hosts/me/services/other", bytes.NewReader(body))
+	req.Header.Set("X-Admin-Key", key)
+	req = req.WithContext(context.WithValue(req.Context(), tailkit.CallerContextKey{}, tailkit.CallerIdentity{UserLogin: "bob@example.com"}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }

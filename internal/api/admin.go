@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	tailkit "github.com/wf-pro-dev/tailkit"
+	"github.com/wf-pro-dev/tailkitd/internal/access"
 	"github.com/wf-pro-dev/tailkitd/internal/admin"
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
@@ -61,6 +63,7 @@ type AdminHandler struct {
 	ServicesDir    string
 	AdminState     *admin.State
 	AdminFencePath string
+	AccessRegistry *access.Registry
 	Promoter       promotionClient
 }
 
@@ -74,6 +77,9 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case r.URL.Path == "/admin/files/write":
 		h.requireAdminKey(h.atomicWriteFile)(w, r)
+		return
+	case r.URL.Path == "/admin/access/grants":
+		h.requireAdminKey(h.handleAccessGrants)(w, r)
 		return
 	case strings.HasPrefix(r.URL.Path, "/admin/hosts/"):
 		h.requireAdminKey(h.handleHostMutation)(w, r)
@@ -95,8 +101,51 @@ func (h *AdminHandler) requireAdminKey(next http.HandlerFunc) http.HandlerFunc {
 			helpers.WriteError(w, http.StatusUnauthorized, "invalid admin key", "")
 			return
 		}
+		if h.AccessRegistry != nil && h.AccessRegistry.HasAnyGrants() {
+			caller, ok := tailkit.CallerFromContext(r.Context())
+			if !ok || caller.UserLogin == "" {
+				helpers.WriteError(w, http.StatusForbidden, "caller identity unavailable", "")
+				return
+			}
+			capability, target := h.requiredCapability(r)
+			if capability != "" && !h.AccessRegistry.Allow(caller.UserLogin, capability, target) {
+				helpers.WriteError(w, http.StatusForbidden, "insufficient privileges for this action", "")
+				return
+			}
+		}
 		next(w, r)
 	}
+}
+
+func (h *AdminHandler) requiredCapability(r *http.Request) (string, string) {
+	switch {
+	case r.URL.Path == "/admin/transfer":
+		return "admin.transfer", "*"
+	case r.URL.Path == "/admin/access/grants":
+		return "access.write", "*"
+	case r.URL.Path == "/admin/files/write":
+		return "host.write", "*"
+	case strings.HasSuffix(r.URL.Path, "/config"):
+		return "host.write", "*"
+	case strings.Contains(r.URL.Path, "/services/"):
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/admin/hosts/"), "/")
+		if len(parts) >= 3 {
+			return "service.write", parts[2]
+		}
+	}
+	return "", ""
+}
+
+func (h *AdminHandler) handleAccessGrants(w http.ResponseWriter, r *http.Request) {
+	handler := &AccessHandler{
+		Registry: h.AccessRegistry,
+		Dir:      access.DefaultAccessDir,
+	}
+	if h.AccessRegistry == nil {
+		helpers.WriteError(w, http.StatusInternalServerError, "access registry unavailable", "")
+		return
+	}
+	handler.ServeHTTP(w, r)
 }
 
 func (h *AdminHandler) handleHostMutation(w http.ResponseWriter, r *http.Request) {

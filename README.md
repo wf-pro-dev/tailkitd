@@ -12,6 +12,11 @@ Tailscale handles the network. tailkitd handles the node.
 |---|---|---|
 | Node identity + auth | ✓ via `lc.WhoIs` | — |
 | Peer discovery | ✓ via `lc.Status` | — |
+| Host identity API | partial | ✓ `GET /host` |
+| Unified service inventory | — | ✓ `GET /services` |
+| Artifact identity API | — | ✓ `GET /identity/pubkey` |
+| Invite token claim | — | ✓ `POST /services/claim` |
+| Admin control plane | — | ✓ `/admin/*` (key + epoch gated) |
 | Installed tool registry | — | ✓ `GET /tools` |
 | File receive / read | — | ✓ `POST /files`, `GET /files` |
 | Env var store | — | ✓ `GET /vars/{project}/{env}` |

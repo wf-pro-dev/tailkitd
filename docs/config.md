@@ -1,14 +1,10 @@
 # Configuration
 
-All configuration lives under `/etc/tailkitd/`. tailkitd validates every file at startup.
+All configuration lives under `/etc/tailkitd/`. tailkitd validates configuration at startup and for watcher-backed control-plane files.
 
 **A missing config file disables the corresponding integration — it returns `503` on every request rather than crashing.** A present but invalid file is a fatal startup error.
 
-Restart tailkitd after editing any config file:
-
-```bash
-sudo systemctl restart tailkitd
-```
+Restart is required for integration configs under `/etc/tailkitd/integrations/*.toml`. Some control-plane files hot-reload automatically (documented below).
 
 ---
 
@@ -18,7 +14,15 @@ sudo systemctl restart tailkitd
 /etc/tailkitd/
   env                          # auth key + runtime env vars (written by install)
   logging.toml                 # app + API logging config
+  hosts.toml                   # fleet host identities (selected by Tailscale peer name)
+  admin.key                    # local shared admin key (bootstrap-generated)
+  admin.fence                  # local fencing token (bootstrap-generated)
+  state.epoch                  # optimistic concurrency token for mutations
+  artifact.key                 # artifact signing private key (bootstrap-generated)
+  artifact.pub                 # artifact signing public key (bootstrap-generated)
   tools/                       # tool registration files (written by tailkit.Install())
+  services.d/                  # outsider service configs (*.toml), hot-reloaded
+  access.d/                    # access grant configs (*.toml), hot-reloaded
   integrations/
     files.toml
     vars.toml
@@ -27,9 +31,114 @@ sudo systemctl restart tailkitd
     metrics.toml
 /var/lib/tailkitd/
   recv/                        # default file inbox (one subdirectory per tool)
+  invites/
+    claims.json                # single-use invite claim registry
+  services/
+    <service>/artifact         # provisioned service artifact payload
+    <service>/meta.json        # provisioning metadata
 /var/log/tailkitd/
   api.json.log                 # rotated API/request logs
 ```
+
+---
+
+## Reload model
+
+- `hot-reloaded`: `/etc/tailkitd/hosts.toml`, `/etc/tailkitd/services.d/*.toml`, `/etc/tailkitd/access.d/*.toml`
+- `restart required`: `/etc/tailkitd/integrations/*.toml`, `/etc/tailkitd/logging.toml`, `/etc/tailkitd/env`
+
+Restart command:
+
+```bash
+sudo systemctl restart tailkitd
+```
+
+---
+
+## hosts.toml
+
+Fleet host identity file keyed by Tailscale peer name.
+
+Path: `/etc/tailkitd/hosts.toml`
+
+```toml
+[[hosts]]
+name = "db-01"
+role = "database"
+environment = "prod"
+provider = "aws"
+instance_type = "t3.medium"
+tags = ["critical", "stateful"]
+metadata = { owner = "platform" }
+```
+
+Rules:
+- must contain at least one `[[hosts]]` entry
+- `hosts[].name` is required and must be unique
+- unknown keys are rejected
+- defaults when omitted: `role="unclassified"`, `environment="default"`, `provider="unknown"`, `tags=[]`, `metadata={}`
+- local node identity is resolved by exact match with the local Tailscale peer name
+
+If missing on first boot, tailkitd auto-generates this file with a single default entry for the local peer.
+
+---
+
+## services.d
+
+Outsider service registry used by `GET /services` and admin/provision mutations.
+
+Directory: `/etc/tailkitd/services.d/`
+
+Each `*.toml` file defines one service:
+
+```toml
+name = "postgres"
+runtime = "systemd"  # systemd | binary | port-only
+priority = "normal"
+tags = ["stateful"]
+expected_ports = [5432]
+systemd_unit = "postgresql.service"
+```
+
+Validation highlights:
+- unknown keys are rejected
+- runtime one-of rules are enforced:
+- `systemd`: requires `systemd_unit`; forbids `binary_path` and `pid_file`
+- `binary`: requires `binary_path` and `pid_file`; forbids `systemd_unit`
+- `port-only`: forbids runtime-specific target fields
+
+---
+
+## access.d
+
+Access grant registry for scoped authorization on mutation endpoints.
+
+Directory: `/etc/tailkitd/access.d/`
+
+```toml
+[[grants]]
+identity = "alice@example.com"
+target = "*"
+role = "superadmin" # admin | superadmin
+```
+
+Rules:
+- unknown keys are rejected
+- roles: `admin`, `superadmin`
+- exact target match is preferred; wildcard `*` is fallback
+- capabilities:
+- `service.write`: `admin` or `superadmin`
+- `host.write`, `access.write`, `admin.transfer`: `superadmin` only
+
+---
+
+## Admin and state files
+
+- `/etc/tailkitd/admin.key`: bootstrap-generated random 32-character hex key, mode `0600`
+- `/etc/tailkitd/admin.fence`: bootstrap-generated fence token (`0` initially), mode `0600`
+- `/etc/tailkitd/state.epoch`: optimistic concurrency token used by mutation endpoints
+- `/etc/tailkitd/artifact.key` and `/etc/tailkitd/artifact.pub`: artifact signing keypair (`0600`/`0644`)
+- `/var/lib/tailkitd/invites/claims.json`: persisted invite claims for single-use enforcement
 
 ---
 

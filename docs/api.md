@@ -138,6 +138,104 @@ Lists all tools registered on this node. Tool files are read from `/etc/tailkitd
 
 ---
 
+## Control Plane
+
+### Host identity
+
+```
+GET /host
+```
+
+Returns merged host identity from `/etc/tailkitd/hosts.toml` and live Tailscale status.
+
+Response fields include:
+- host config: `name`, `role`, `environment`, `provider`, `instance_type`, `tags`, `metadata`
+- Tailscale status: `ts_hostname`, `ts_dns_name`, `ts_ips`, `os`, `arch`, `online`
+- admin state: `is_admin`
+
+### Artifact identity
+
+```
+GET /identity/pubkey
+```
+
+Returns:
+- `node_hostname`: daemon host identity used by tailkitd
+- `tailscale_identity`: caller login when available
+- `artifact_public_key`: base64 Ed25519 public key
+
+### Unified services
+
+```
+GET /services
+```
+
+Returns unified service inventory from:
+- outsider services (`/etc/tailkitd/services.d/*.toml`) with `source: "outsider"`
+- registered tools (`/tools`) with `source: "tool"`
+
+### Claim invite token
+
+```
+POST /services/claim
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{"token":"<base64 token envelope>"}
+```
+
+Validates signature, expiry, grantee identity, and single-use claim state. On success:
+
+```json
+{"status":"claimed","token_id":"...","service_name":"...","target_node":"..."}
+```
+
+### Provision service artifact
+
+```
+POST /services/provision
+Content-Type: application/json
+X-State-Epoch: <current-epoch>
+```
+
+Performs artifact hash/signature verification and writes:
+- provisioned artifact under `/var/lib/tailkitd/services/<service>/artifact`
+- metadata under `/var/lib/tailkitd/services/<service>/meta.json`
+- service definition in `/etc/tailkitd/services.d/<service>.toml`
+
+If `X-State-Epoch` is stale/future, returns `409` with the current epoch in `X-State-Epoch`.
+
+### Admin mutations
+
+Admin routes are under `/admin/` and require:
+- `X-Admin-Key`: local admin key (`/etc/tailkitd/admin.key`)
+- `X-State-Epoch`: for mutation methods (`POST`, `PUT`, `PATCH`, `DELETE`)
+
+When access grants exist (`/etc/tailkitd/access.d/*.toml`), caller identity is also checked against capability rules.
+
+Endpoints:
+
+```
+POST /admin/hosts/me/config
+POST /admin/hosts/{me|node-hostname}/services/{service}
+DELETE /admin/hosts/{me|node-hostname}/services/{service}
+GET  /admin/access/grants
+POST /admin/access/grants
+POST /admin/files/write
+POST /admin/transfer
+POST /admin/internal/accept-promotion   # internal peer-to-peer promotion path
+```
+
+Notes:
+- host config mutation only allows writing the local host entry (name must match local Tailscale peer name)
+- successful mutation responses include updated `X-State-Epoch`
+- stale writes return `409` with updated `X-State-Epoch`
+
+---
+
 ## Files
 
 Files config must be present (`files.toml`). Path access is gated by `allow` lists. Path traversal is rejected on every operation.

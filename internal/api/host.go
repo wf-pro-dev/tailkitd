@@ -6,6 +6,7 @@ import (
 
 	"github.com/wf-pro-dev/tailkitd/internal/config"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
+	"go.uber.org/zap"
 	"tailscale.com/ipn/ipnstate"
 )
 
@@ -35,6 +36,7 @@ type HostHandler struct {
 	LocalClient statusClient
 	HostManager *config.HostManager
 	AdminState  interface{ IsAdmin() bool }
+	Logger      *zap.Logger
 }
 
 func (h *HostHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +47,9 @@ func (h *HostHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	status, err := h.LocalClient.Status(r.Context())
 	if err != nil {
+		h.logger().Error("host: tailscale status lookup failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+			zap.Error(err),
+		})...)
 		helpers.WriteError(w, http.StatusInternalServerError, "failed to get tailscale status", "")
 		return
 	}
@@ -81,4 +86,11 @@ func (h *HostHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	helpers.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *HostHandler) logger() *zap.Logger {
+	if h.Logger != nil {
+		return h.Logger.With(zap.String("component", "host"))
+	}
+	return zap.NewNop()
 }

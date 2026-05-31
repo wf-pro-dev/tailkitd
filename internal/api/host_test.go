@@ -25,17 +25,16 @@ func (f fakeStatusClient) Status(context.Context) (*ipnstate.Status, error) {
 }
 
 func TestHostHandlerServesMergedResponse(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "host.toml")
+	path := filepath.Join(t.TempDir(), "hosts.toml")
 	data := []byte(`
-name = "db-01"
+[[hosts]]
+name = "db-01-ts"
 role = "database"
 environment = "prod"
 provider = "aws"
 instance_type = "t3.medium"
 tags = ["critical", "stateful"]
-
-[metadata]
-owner = "platform"
+metadata = { owner = "platform" }
 `)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -44,7 +43,7 @@ owner = "platform"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mgr, err := config.NewHostManager(ctx, path, "ts-host", zap.NewNop())
+	mgr, err := config.NewHostManager(ctx, path, "db-01-ts", zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewHostManager returned error: %v", err)
 	}
@@ -78,8 +77,8 @@ owner = "platform"
 		t.Fatalf("decode response: %v", err)
 	}
 
-	if resp.Name != "db-01" {
-		t.Fatalf("Name = %q, want %q", resp.Name, "db-01")
+	if resp.Name != "db-01-ts" {
+		t.Fatalf("Name = %q, want %q", resp.Name, "db-01-ts")
 	}
 	if resp.Role != "database" {
 		t.Fatalf("Role = %q, want %q", resp.Role, "database")

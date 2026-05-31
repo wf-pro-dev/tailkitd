@@ -203,6 +203,10 @@ func (r *Registry) Reload() error {
 	r.mu.Lock()
 	r.services = cloneServices(loaded)
 	r.mu.Unlock()
+	r.logger.Debug("services registry snapshot loaded",
+		zap.String("dir", r.dir),
+		zap.Int("service_count", len(loaded)),
+	)
 	return nil
 }
 
@@ -249,12 +253,19 @@ func (r *Registry) watchLoop(ctx context.Context) {
 			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) == 0 {
 				continue
 			}
+			r.logger.Debug("services registry change detected",
+				zap.String("file", event.Name),
+				zap.String("op", event.Op.String()),
+			)
 			resetRegistryTimer(timer, reloadDebounce)
 		case <-timer.C:
 			if err := r.Reload(); err != nil {
 				r.logger.Error("services registry reload failed", zap.Error(err))
 			} else {
-				r.logger.Info("services registry reloaded")
+				r.logger.Info("services registry reloaded",
+					zap.String("dir", r.dir),
+					zap.Int("service_count", len(r.ListServices())),
+				)
 			}
 		case err, ok := <-r.watcher.Errors:
 			if !ok {

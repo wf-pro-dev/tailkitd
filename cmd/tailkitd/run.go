@@ -11,7 +11,6 @@ import (
 
 	"github.com/coreos/go-systemd/v22/daemon"
 	"go.uber.org/zap"
-	"tailscale.com/client/local"
 
 	tailkit "github.com/wf-pro-dev/tailkit"
 	"github.com/wf-pro-dev/tailkitd/internal/access"
@@ -66,12 +65,20 @@ func cmdRun() int {
 	)
 
 	// ── Step 2: Resolve this node's own Tailscale hostname. ──────────────────
-	tsnetHostname, err := resolveHostname(logger)
+	selfTailnetHostname, err := resolveTailnetHostname(logger)
+	if err != nil {
+		logger.Error("fatal: could not determine tailscale peer hostname", zap.Error(err))
+		return 1
+	}
+	tsnetHostname, err := resolveHostname(logger, selfTailnetHostname)
 	if err != nil {
 		logger.Error("fatal: could not determine node hostname", zap.Error(err))
 		return 1
 	}
-	logger.Debug("resolved node hostname", zap.String("tsnet_hostname", tsnetHostname))
+	logger.Debug("resolved node hostname",
+		zap.String("tailnet_hostname", selfTailnetHostname),
+		zap.String("tsnet_hostname", tsnetHostname),
+	)
 
 	// ── Step 3: Load all integration configs. ────────────────────────────────
 	ctx, cancel := context.WithCancel(context.Background())
@@ -107,7 +114,7 @@ func cmdRun() int {
 		logger.Error("fatal: metrics config invalid", zap.Error(err))
 		return 1
 	}
-	hostManager, err := config.NewHostManager(ctx, config.HostConfigPath, tsnetHostname, logger)
+	hostManager, err := config.NewHostManager(ctx, config.HostConfigPath, selfTailnetHostname, logger)
 	if err != nil {
 		logger.Error("fatal: host config invalid", zap.Error(err))
 		return 1
@@ -121,7 +128,10 @@ func cmdRun() int {
 		zap.Bool("systemd", systemdCfg.Enabled),
 		zap.Bool("metrics", metricsCfg.Enabled),
 	)
-	logger.Debug("host config loaded", zap.String("host_name", hostManager.Get().Name))
+	logger.Debug("host config loaded",
+		zap.String("host_name", hostManager.Get().Name),
+		zap.String("fleet_file", config.HostConfigPath),
+	)
 
 	// ── Step 4: Build per-subsystem child loggers. ───────────────────────────
 	toolsLogger := serviceLogger(loggers.App, "tailkitd/tools", "tools")
@@ -133,6 +143,9 @@ func cmdRun() int {
 	metricsLogger := serviceLogger(loggers.App, "tailkitd/metrics", "metrics")
 	servicesLogger := serviceLogger(loggers.App, "tailkitd/services", "services")
 	accessLogger := serviceLogger(loggers.App, "tailkitd/access", "access")
+	hostLogger := serviceLogger(loggers.App, "tailkitd/host", "host")
+	identityLogger := serviceLogger(loggers.App, "tailkitd/identity", "identity")
+	inviteLogger := serviceLogger(loggers.App, "tailkitd/invite", "invite")
 
 	// ── Step 5: Build tool registry (for GET /tools). ────────────────────────
 	toolsRegistry := tools.NewRegistry(toolsDir, toolsLogger)
@@ -222,7 +235,7 @@ func cmdRun() int {
 		logger.Error("fatal: failed to read tailscale status", zap.Error(err))
 		return 1
 	}
-	adminState, err := admin.BootstrapState(ctx, tsnetHostname, status, srv.HTTPClient(), logger)
+	adminState, err := admin.BootstrapState(ctx, tsnetHostname, selfTailnetHostname, status, hostManager.Names(), srv.HTTPClient(), logger)
 	if err != nil {
 		logger.Error("fatal: failed to initialize admin state", zap.Error(err))
 		return 1
@@ -238,21 +251,25 @@ func cmdRun() int {
 		LocalClient: localClient,
 		HostManager: hostManager,
 		AdminState:  adminState,
+		Logger:      hostLogger,
 	}
 	servicesHandler := &api.ServicesHandler{
 		Outsiders: outsiderRegistry,
 		Tools:     toolsRegistry,
+		Logger:    servicesLogger,
 	}
 	identityHandler := &api.IdentityHandler{
 		NodeHostname: tsnetHostname,
+		Logger:       identityLogger,
 	}
-	inviteStore, err := invite.NewStore(invite.ClaimsStorePath)
+	inviteStore, err := invite.NewStore(invite.ClaimsStorePath, inviteLogger)
 	if err != nil {
 		logger.Error("fatal: failed to initialize invite claim store", zap.Error(err))
 		return 1
 	}
 	inviteClaimHandler := &api.InviteClaimHandler{
-		Store: inviteStore,
+		Store:  inviteStore,
+		Logger: inviteLogger,
 	}
 	provisionHandler := &api.ProvisionHandler{
 		AccessRegistry: accessRegistry,
@@ -271,6 +288,7 @@ func cmdRun() int {
 		AccessRegistry: accessRegistry,
 		Epoch:          nodeEpoch,
 		Promoter:       api.NewHTTPPromotionClient(srv.HTTPClient()),
+		Logger:         apiLogger,
 	}
 
 	mux.Handle("/host", hostHandler)
@@ -401,27 +419,19 @@ func serviceLogger(logger *zap.Logger, service, component string) *zap.Logger {
 }
 
 // resolveHostname returns the tsnet hostname tailkitd should register as.
-// See hostname.go for the resolution logic and sanitizeHostname.
-func resolveHostname(logger *zap.Logger) (string, error) {
+func resolveHostname(logger *zap.Logger, selfTailnetHostname string) (string, error) {
 	if h := os.Getenv("TAILKITD_HOSTNAME"); h != "" {
 		logger.Debug("using explicit TAILKITD_HOSTNAME", zap.String("hostname", h))
 		return h, nil
 	}
 
-	lc := &local.Client{}
-	status, err := lc.Status(context.Background())
-	if err == nil && status.Self != nil && status.Self.HostName != "" {
-		h := "tailkitd-" + SanitizeHostname(status.Self.HostName)
-		logger.Debug("resolved hostname from system tailscaled",
-			zap.String("host_hostname", status.Self.HostName),
+	if selfTailnetHostname != "" {
+		h := daemonHostnameForTailnetHost(selfTailnetHostname)
+		logger.Debug("resolved daemon hostname from tailscale peer name",
+			zap.String("host_hostname", selfTailnetHostname),
 			zap.String("tsnet_hostname", h),
 		)
 		return h, nil
-	}
-	if err != nil {
-		logger.Warn("could not reach system tailscaled, falling back to OS hostname",
-			zap.Error(err),
-		)
 	}
 
 	osHost, err := os.Hostname()

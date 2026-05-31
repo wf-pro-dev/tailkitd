@@ -6,21 +6,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/fsnotify/fsnotify"
+	"github.com/wf-pro-dev/tailkitd/internal/utils"
 	"go.uber.org/zap"
 )
 
 const (
-	HostConfigPath        = "/etc/tailkitd/host.toml"
+	HostsConfigPath       = "/etc/tailkitd/hosts.toml"
+	HostConfigPath        = HostsConfigPath
 	hostReloadDebounce    = 300 * time.Millisecond
 	hostWatchPollInterval = 50 * time.Millisecond
 )
 
-// HostConfig is the strict v0.1.0 host identity schema.
+// HostConfig is one fleet host entry keyed by Tailscale peer name.
 type HostConfig struct {
 	Name         string            `toml:"name" json:"name"`
 	Role         string            `toml:"role" json:"role"`
@@ -31,27 +34,46 @@ type HostConfig struct {
 	Metadata     map[string]string `toml:"metadata" json:"metadata"`
 }
 
-func LoadHostConfig(path string) (*HostConfig, error) {
+type hostFile struct {
+	Hosts []HostConfig `toml:"hosts"`
+}
+
+func LoadHostFile(path string) ([]HostConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var cfg HostConfig
-	meta, err := toml.Decode(string(data), &cfg)
+	var raw hostFile
+	meta, err := toml.Decode(string(data), &raw)
 	if err != nil {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		return nil, fmt.Errorf("config: parse %s: unknown key %q", path, undecoded[0].String())
 	}
+	if len(raw.Hosts) == 0 {
+		return nil, fmt.Errorf("config: parse %s: no hosts defined", path)
+	}
 
-	return &cfg, nil
+	seen := make(map[string]struct{}, len(raw.Hosts))
+	for i := range raw.Hosts {
+		raw.Hosts[i].SetDefaults(raw.Hosts[i].Name)
+		if raw.Hosts[i].Name == "" {
+			return nil, fmt.Errorf("config: parse %s: hosts[%d].name is required", path, i)
+		}
+		if _, ok := seen[raw.Hosts[i].Name]; ok {
+			return nil, fmt.Errorf("config: parse %s: duplicate host name %q", path, raw.Hosts[i].Name)
+		}
+		seen[raw.Hosts[i].Name] = struct{}{}
+	}
+
+	return raw.Hosts, nil
 }
 
-func (h *HostConfig) SetDefaults(tsHostname string) {
+func (h *HostConfig) SetDefaults(name string) {
 	if h.Name == "" {
-		h.Name = tsHostname
+		h.Name = name
 	}
 	if h.Role == "" {
 		h.Role = "unclassified"
@@ -83,15 +105,27 @@ func cloneHostConfig(cfg *HostConfig) *HostConfig {
 	return &clone
 }
 
-func WriteHostConfig(path string, cfg *HostConfig) error {
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
-		return fmt.Errorf("config: encode %s: %w", path, err)
+func cloneHostConfigs(cfgs []HostConfig) []HostConfig {
+	if cfgs == nil {
+		return nil
 	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	clones := make([]HostConfig, len(cfgs))
+	for i := range cfgs {
+		clones[i] = *cloneHostConfig(&cfgs[i])
+	}
+	return clones
 }
 
-func EnsureHostConfig(path, tsHostname string) (*HostConfig, error) {
+func WriteHostFile(path string, hosts []HostConfig) error {
+	var buf bytes.Buffer
+	payload := hostFile{Hosts: cloneHostConfigs(hosts)}
+	if err := toml.NewEncoder(&buf).Encode(payload); err != nil {
+		return fmt.Errorf("config: encode %s: %w", path, err)
+	}
+	return utils.AtomicWrite(path, buf.Bytes(), 0o644)
+}
+
+func EnsureHostConfig(path, selfTailnetName string) ([]HostConfig, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("config: mkdir %s: %w", filepath.Dir(path), err)
 	}
@@ -101,33 +135,34 @@ func EnsureHostConfig(path, tsHostname string) (*HostConfig, error) {
 			return nil, fmt.Errorf("config: stat %s: %w", path, err)
 		}
 
-		cfg := &HostConfig{}
-		cfg.SetDefaults(tsHostname)
-		if err := WriteHostConfig(path, cfg); err != nil {
+		cfg := HostConfig{}
+		cfg.SetDefaults(selfTailnetName)
+		hosts := []HostConfig{cfg}
+		if err := WriteHostFile(path, hosts); err != nil {
 			return nil, fmt.Errorf("config: generate %s: %w", path, err)
 		}
-		return cfg, nil
+		return hosts, nil
 	}
 
-	cfg, err := LoadHostConfig(path)
-	if err != nil {
-		return nil, err
-	}
-	cfg.SetDefaults(tsHostname)
-	return cfg, nil
+	return LoadHostFile(path)
 }
 
 type HostManager struct {
-	mu         sync.RWMutex
-	cfg        *HostConfig
-	path       string
-	tsHostname string
-	logger     *zap.Logger
-	watcher    *fsnotify.Watcher
+	mu              sync.RWMutex
+	hosts           []HostConfig
+	self            *HostConfig
+	path            string
+	selfTailnetName string
+	logger          *zap.Logger
+	watcher         *fsnotify.Watcher
 }
 
-func NewHostManager(ctx context.Context, path, tsHostname string, logger *zap.Logger) (*HostManager, error) {
-	cfg, err := EnsureHostConfig(path, tsHostname)
+func NewHostManager(ctx context.Context, path, selfTailnetName string, logger *zap.Logger) (*HostManager, error) {
+	hosts, err := EnsureHostConfig(path, selfTailnetName)
+	if err != nil {
+		return nil, err
+	}
+	self, err := resolveSelfHost(hosts, selfTailnetName)
 	if err != nil {
 		return nil, err
 	}
@@ -144,15 +179,25 @@ func NewHostManager(ctx context.Context, path, tsHostname string, logger *zap.Lo
 	}
 
 	mgr := &HostManager{
-		cfg:        cloneHostConfig(cfg),
-		path:       path,
-		tsHostname: tsHostname,
-		logger:     logger.With(zap.String("component", "config.host")),
-		watcher:    watcher,
+		hosts:           cloneHostConfigs(hosts),
+		self:            cloneHostConfig(self),
+		path:            path,
+		selfTailnetName: selfTailnetName,
+		logger:          logger.With(zap.String("component", "config.host")),
+		watcher:         watcher,
 	}
 
 	go mgr.watchLoop(ctx)
 	return mgr, nil
+}
+
+func resolveSelfHost(hosts []HostConfig, selfTailnetName string) (*HostConfig, error) {
+	for i := range hosts {
+		if hosts[i].Name == selfTailnetName {
+			return cloneHostConfig(&hosts[i]), nil
+		}
+	}
+	return nil, fmt.Errorf("config: no host entry found for local tailscale peer %q", selfTailnetName)
 }
 
 func (m *HostManager) Close() error {
@@ -165,23 +210,74 @@ func (m *HostManager) Close() error {
 func (m *HostManager) Get() *HostConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return cloneHostConfig(m.cfg)
+	return cloneHostConfig(m.self)
 }
 
-func (m *HostManager) Replace(cfg *HostConfig) {
+func (m *HostManager) All() []HostConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneHostConfigs(m.hosts)
+}
+
+func (m *HostManager) Names() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	names := make([]string, 0, len(m.hosts))
+	for _, host := range m.hosts {
+		names = append(names, host.Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func (m *HostManager) SelfName() string {
+	return m.selfTailnetName
+}
+
+func (m *HostManager) ReplaceSelf(cfg *HostConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("config: self host is required")
+	}
 	cfg = cloneHostConfig(cfg)
+	cfg.SetDefaults(m.selfTailnetName)
+	if cfg.Name != m.selfTailnetName {
+		return fmt.Errorf("config: host name %q does not match local tailscale peer %q", cfg.Name, m.selfTailnetName)
+	}
+
 	m.mu.Lock()
-	m.cfg = cfg
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+
+	replaced := false
+	next := cloneHostConfigs(m.hosts)
+	for i := range next {
+		if next[i].Name == m.selfTailnetName {
+			next[i] = *cfg
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		next = append(next, *cfg)
+	}
+	m.hosts = next
+	m.self = cloneHostConfig(cfg)
+	return nil
 }
 
 func (m *HostManager) Reload() error {
-	cfg, err := LoadHostConfig(m.path)
+	hosts, err := LoadHostFile(m.path)
 	if err != nil {
 		return err
 	}
-	cfg.SetDefaults(m.tsHostname)
-	m.Replace(cfg)
+	self, err := resolveSelfHost(hosts, m.selfTailnetName)
+	if err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	m.hosts = cloneHostConfigs(hosts)
+	m.self = cloneHostConfig(self)
+	m.mu.Unlock()
 	return nil
 }
 

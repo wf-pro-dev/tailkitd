@@ -38,7 +38,7 @@ func newAdminHandlerForTest(t *testing.T) (*AdminHandler, string) {
 	oldAccessDir := access.DefaultAccessDir
 	oldEpochPath := state.EpochFilePath
 
-	hostConfigPath := filepath.Join(base, "host.toml")
+	hostConfigPath := filepath.Join(base, "hosts.toml")
 	servicesDir := filepath.Join(base, "services.d")
 	accessDir := filepath.Join(base, "access.d")
 	epochPath := filepath.Join(base, "state.epoch")
@@ -55,7 +55,7 @@ func newAdminHandlerForTest(t *testing.T) (*AdminHandler, string) {
 		state.EpochFilePath = oldEpochPath
 	})
 
-	if err := os.WriteFile(hostConfigPath, []byte("name = \"node-a\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(hostConfigPath, []byte("[[hosts]]\nname = \"node-a-tailnet\"\n"), 0o644); err != nil {
 		t.Fatalf("write host config: %v", err)
 	}
 	if err := admin.EnsureBootstrapFiles(); err != nil {
@@ -64,7 +64,7 @@ func newAdminHandlerForTest(t *testing.T) (*AdminHandler, string) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	hostMgr, err := config.NewHostManager(ctx, hostConfigPath, "tailkitd-node-a", zap.NewNop())
+	hostMgr, err := config.NewHostManager(ctx, hostConfigPath, "node-a-tailnet", zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewHostManager: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestAdminHandlerPushHostConfig(t *testing.T) {
 		t.Fatalf("GetAdminKey: %v", err)
 	}
 
-	body := []byte(`{"name":"node-b","role":"db"}`)
+	body := []byte(`{"name":"node-a-tailnet","role":"db"}`)
 	req := httptest.NewRequest(http.MethodPost, "/admin/hosts/me/config", bytes.NewReader(body))
 	req.Header.Set("X-Admin-Key", key)
 	req.Header.Set("X-State-Epoch", "0")
@@ -133,6 +133,25 @@ func TestAdminHandlerPushHostConfig(t *testing.T) {
 	}
 	if got := handler.HostConfig.Get().Role; got != "db" {
 		t.Fatalf("role = %q, want %q", got, "db")
+	}
+}
+
+func TestAdminHandlerPushHostConfigRejectsRenamingPeer(t *testing.T) {
+	handler, _ := newAdminHandlerForTest(t)
+	key, err := admin.GetAdminKey()
+	if err != nil {
+		t.Fatalf("GetAdminKey: %v", err)
+	}
+
+	body := []byte(`{"name":"other-peer","role":"db"}`)
+	req := httptest.NewRequest(http.MethodPost, "/admin/hosts/me/config", bytes.NewReader(body))
+	req.Header.Set("X-Admin-Key", key)
+	req.Header.Set("X-State-Epoch", "0")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 }
 
@@ -216,7 +235,7 @@ func TestAdminHandlerRejectsStaleEpoch(t *testing.T) {
 		t.Fatalf("GetAdminKey: %v", err)
 	}
 
-	req1 := httptest.NewRequest(http.MethodPost, "/admin/hosts/me/config", bytes.NewReader([]byte(`{"name":"node-a"}`)))
+	req1 := httptest.NewRequest(http.MethodPost, "/admin/hosts/me/config", bytes.NewReader([]byte(`{"name":"node-a-tailnet"}`)))
 	req1.Header.Set("X-Admin-Key", key)
 	req1.Header.Set("X-State-Epoch", "0")
 	rec1 := httptest.NewRecorder()
@@ -225,7 +244,7 @@ func TestAdminHandlerRejectsStaleEpoch(t *testing.T) {
 		t.Fatalf("first status = %d, want %d", rec1.Code, http.StatusOK)
 	}
 
-	req2 := httptest.NewRequest(http.MethodPost, "/admin/hosts/me/config", bytes.NewReader([]byte(`{"name":"node-b"}`)))
+	req2 := httptest.NewRequest(http.MethodPost, "/admin/hosts/me/config", bytes.NewReader([]byte(`{"name":"node-a-tailnet","role":"db"}`)))
 	req2.Header.Set("X-Admin-Key", key)
 	req2.Header.Set("X-State-Epoch", "0")
 	rec2 := httptest.NewRecorder()

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wf-pro-dev/tailkitd/internal/utils"
+	"go.uber.org/zap"
 )
 
 var ClaimsStorePath = "/var/lib/tailkitd/invites/claims.json"
@@ -24,12 +25,17 @@ type Store struct {
 	mu     sync.RWMutex
 	path   string
 	claims map[string]ClaimRecord
+	logger *zap.Logger
 }
 
-func NewStore(path string) (*Store, error) {
+func NewStore(path string, logger *zap.Logger) (*Store, error) {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	s := &Store{
 		path:   path,
 		claims: map[string]ClaimRecord{},
+		logger: logger.With(zap.String("component", "invite.store")),
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -41,6 +47,7 @@ func (s *Store) load() error {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			s.logger.Debug("invite claims store not found; starting empty", zap.String("path", s.path))
 			return nil
 		}
 		return fmt.Errorf("invite store: read %s: %w", s.path, err)
@@ -52,6 +59,10 @@ func (s *Store) load() error {
 	for _, claim := range claims {
 		s.claims[claim.TokenID] = claim
 	}
+	s.logger.Debug("invite claims store loaded",
+		zap.String("path", s.path),
+		zap.Int("claim_count", len(s.claims)),
+	)
 	return nil
 }
 
@@ -74,7 +85,16 @@ func (s *Store) MarkClaimed(tokenID, claimedBy string, expiresAt time.Time) erro
 		ClaimedAt: time.Now().UTC(),
 		ExpiresAt: expiresAt.UTC(),
 	}
-	return s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		return err
+	}
+	s.logger.Info("invite claim recorded",
+		zap.String("path", s.path),
+		zap.String("token_id", tokenID),
+		zap.String("claimed_by", claimedBy),
+		zap.Time("expires_at", expiresAt.UTC()),
+	)
+	return nil
 }
 
 func (s *Store) persistLocked() error {

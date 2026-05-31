@@ -8,7 +8,7 @@ import (
 
 func TestStorePersistsClaims(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "claims.json")
-	store, err := NewStore(path)
+	store, err := NewStore(path, nil)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -16,7 +16,7 @@ func TestStorePersistsClaims(t *testing.T) {
 		t.Fatalf("MarkClaimed: %v", err)
 	}
 
-	reloaded, err := NewStore(path)
+	reloaded, err := NewStore(path, nil)
 	if err != nil {
 		t.Fatalf("NewStore reload: %v", err)
 	}

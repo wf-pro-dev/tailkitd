@@ -6,10 +6,12 @@ import (
 	tailkit "github.com/wf-pro-dev/tailkit"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"github.com/wf-pro-dev/tailkitd/internal/identity"
+	"go.uber.org/zap"
 )
 
 type IdentityHandler struct {
 	NodeHostname string
+	Logger       *zap.Logger
 }
 
 func (h *IdentityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -20,6 +22,9 @@ func (h *IdentityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	publicKey, err := identity.ReadPublicKeyString()
 	if err != nil {
+		h.logger().Error("identity: public key read failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+			zap.Error(err),
+		})...)
 		helpers.WriteError(w, http.StatusInternalServerError, "artifact public key not available", "")
 		return
 	}
@@ -34,4 +39,11 @@ func (h *IdentityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"tailscale_identity":  callerIdentity,
 		"artifact_public_key": publicKey,
 	})
+}
+
+func (h *IdentityHandler) logger() *zap.Logger {
+	if h.Logger != nil {
+		return h.Logger.With(zap.String("component", "identity"))
+	}
+	return zap.NewNop()
 }

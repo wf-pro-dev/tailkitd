@@ -17,6 +17,7 @@ import (
 	tailkit "github.com/wf-pro-dev/tailkit"
 	"github.com/wf-pro-dev/tailkitd/internal/identity"
 	"github.com/wf-pro-dev/tailkitd/internal/invite"
+	"go.uber.org/zap"
 )
 
 func TestInviteClaimHandlerClaimsOnceForMatchingIdentity(t *testing.T) {
@@ -43,7 +44,7 @@ func TestInviteClaimHandlerClaimsOnceForMatchingIdentity(t *testing.T) {
 		t.Fatalf("write pub: %v", err)
 	}
 
-	store, err := invite.NewStore(filepath.Join(t.TempDir(), "claims.json"))
+	store, err := invite.NewStore(filepath.Join(t.TempDir(), "claims.json"), zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestInviteClaimHandlerRejectsWrongIdentity(t *testing.T) {
 		t.Fatalf("write pub: %v", err)
 	}
 
-	store, err := invite.NewStore(filepath.Join(t.TempDir(), "claims.json"))
+	store, err := invite.NewStore(filepath.Join(t.TempDir(), "claims.json"), zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}

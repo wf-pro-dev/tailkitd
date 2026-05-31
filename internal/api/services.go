@@ -7,6 +7,7 @@ import (
 	"github.com/wf-pro-dev/tailkit/types"
 	"github.com/wf-pro-dev/tailkitd/internal/helpers"
 	"github.com/wf-pro-dev/tailkitd/internal/services"
+	"go.uber.org/zap"
 )
 
 type ServiceResponse struct {
@@ -34,6 +35,7 @@ type toolLister interface {
 type ServicesHandler struct {
 	Outsiders outsiderLister
 	Tools     toolLister
+	Logger    *zap.Logger
 }
 
 func (h *ServicesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +61,9 @@ func (h *ServicesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tools, err := h.Tools.List(r.Context())
 	if err != nil {
+		h.logger().Error("services: tool listing failed", helpers.WithRequestLogFields(r.Context(), []zap.Field{
+			zap.Error(err),
+		})...)
 		helpers.WriteError(w, http.StatusInternalServerError, "failed to list tools", "")
 		return
 	}
@@ -76,4 +81,11 @@ func (h *ServicesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	helpers.WriteJSON(w, http.StatusOK, unified)
+}
+
+func (h *ServicesHandler) logger() *zap.Logger {
+	if h.Logger != nil {
+		return h.Logger.With(zap.String("component", "services"))
+	}
+	return zap.NewNop()
 }
